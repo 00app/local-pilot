@@ -13,11 +13,17 @@ import { NextRequest, NextResponse } from "next/server"
  */
 
 interface InstagramMediaNode {
+  // SearchAPI's `instagram_profile` canonical fields are `thumbnail` +
+  // `iso_date`; we keep the older synonyms for defensive fallback if the
+  // schema changes.
   image_url?: string
+  thumbnail?: string
   thumbnail_url?: string
+  display_url?: string
   caption?: string
   likes?: number
   comments?: number
+  iso_date?: string
   taken_at?: string | number
   timestamp?: string
   permalink?: string
@@ -79,31 +85,38 @@ async function respond(username: string) {
     }
     const data = await res.json()
 
-    // SearchAPI shape varies slightly; pick the most recent media node defensively.
+    // SearchAPI's canonical shape is `{ profile: { username, name, avatar,
+    // posts (count), followers, ... }, posts: [{ thumbnail, caption,
+    // likes, comments, iso_date, permalink }] }`. We keep the old key
+    // fallbacks so the route still works if the schema changes or a
+    // different SearchAPI SKU is used.
     const profile = data.profile || data.user || {}
     const mediaList: InstagramMediaNode[] =
-      data.media || data.posts || data.items || profile?.media || []
+      data.posts || data.media || data.items || profile?.media || []
 
     const latest = mediaList[0]
     const payload: InstagramLatest = {
       username,
-      full_name: profile.full_name || profile.name,
-      profile_pic_url: profile.profile_pic_url || profile.profile_pic,
+      full_name: profile.name || profile.full_name,
+      profile_pic_url: profile.avatar_hd || profile.avatar || profile.profile_pic_url,
       followers: profile.followers || profile.followers_count,
       post: latest
         ? {
             image_url:
+              latest.thumbnail ||
               latest.image_url ||
               latest.thumbnail_url ||
-              profile.profile_pic_url ||
+              latest.display_url ||
+              profile.avatar ||
               "",
             caption: (latest.caption || "").toString().slice(0, 600),
             likes: latest.likes || 0,
             comments: latest.comments || 0,
             posted_at:
-              typeof latest.taken_at === "number"
+              latest.iso_date ||
+              (typeof latest.taken_at === "number"
                 ? new Date(latest.taken_at * 1000).toISOString()
-                : (latest.taken_at as string) || latest.timestamp || new Date().toISOString(),
+                : (latest.taken_at as string) || latest.timestamp || new Date().toISOString()),
             permalink: latest.permalink,
           }
         : null,

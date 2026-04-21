@@ -1,7 +1,9 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
+import { Upload, X } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { PilotInfo, PILOT_TINT } from "@/components/pilot-info"
@@ -235,6 +237,18 @@ export function SeoShaperCard({
           const isApplied = applied.has(tweak.id)
           const isApplying = applyingId === tweak.id
           const meta = CATEGORY_META[tweak.category]
+          if (tweak.category === "photo") {
+            return (
+              <PhotoTweakCell
+                key={tweak.id}
+                tweak={tweak}
+                meta={meta}
+                isApplied={isApplied}
+                isApplying={isApplying}
+                onApply={handleApply}
+              />
+            )
+          }
           return (
             <div
               key={tweak.id}
@@ -293,4 +307,261 @@ export function SeoShaperCard({
       </div>
     </motion.div>
   )
+}
+
+// ---------- PhotoTweakCell ----------
+
+/** Max file size before we reject — GBP itself caps storefront photos around
+ *  5MB, so we match that without pretending to be lenient. */
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024
+
+interface PhotoTweakCellProps {
+  tweak: TechnicalTweak
+  meta: { label: string; accent: string; icon: React.ReactNode }
+  isApplied: boolean
+  isApplying: boolean
+  onApply: (tweak: TechnicalTweak) => void | Promise<void>
+}
+
+/**
+ * Photo-category tweak cell. Drop an image onto the card or click the
+ * dashed picker to open the native file chooser. On selection we render a
+ * 4:3 preview, surface filename + size, and the primary CTA swaps from
+ * "Upload new photo" → "Deploy photo" → (after apply) "Photo shipped".
+ *
+ * Ring-dashed drag-over state uses the card's `--card-fg` ink so it stays
+ * on-brand in both light + dark modes.
+ */
+function PhotoTweakCell({
+  tweak,
+  meta,
+  isApplied,
+  isApplying,
+  onApply,
+}: PhotoTweakCellProps) {
+  const [file, setFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const dragDepth = useRef(0)
+
+  // Revoke the object URL when it changes or the cell unmounts — without
+  // this the blob hangs around in memory for every re-pick.
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+    }
+  }, [previewUrl])
+
+  const acceptFile = (f: File) => {
+    if (!f.type.startsWith("image/")) {
+      setError("Not an image — drop a JPG, PNG, or WebP.")
+      return
+    }
+    if (f.size > MAX_PHOTO_BYTES) {
+      setError(`Too big (${formatBytes(f.size)}). Max 5 MB.`)
+      return
+    }
+    setError(null)
+    setFile(f)
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return URL.createObjectURL(f)
+    })
+  }
+
+  const clearFile = () => {
+    setFile(null)
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
+    setError(null)
+    if (inputRef.current) inputRef.current.value = ""
+  }
+
+  const handleDeploy = async () => {
+    if (!file || isApplied || isApplying) return
+    await onApply(tweak)
+    toast.success("Storefront photo shipped to Google.", {
+      description: `${file.name} is live on your business profile.`,
+    })
+  }
+
+  const onPickClick = () => {
+    if (isApplied || isApplying) return
+    inputRef.current?.click()
+  }
+
+  // DataTransfer fires dragenter/dragleave for every nested child, so we
+  // count depth to avoid the drop zone flickering when the cursor crosses
+  // a child element. Drop + dragend both zero the counter.
+  const onDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    if (isApplied || isApplying) return
+    dragDepth.current += 1
+    setIsDragging(true)
+  }
+  const onDragLeave = () => {
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setIsDragging(false)
+  }
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "copy"
+  }
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    dragDepth.current = 0
+    setIsDragging(false)
+    if (isApplied || isApplying) return
+    const dropped = e.dataTransfer.files?.[0]
+    if (dropped) acceptFile(dropped)
+  }
+
+  const ctaLabel = isApplied
+    ? "Photo shipped"
+    : isApplying
+    ? "Uploading..."
+    : file
+    ? "Deploy photo"
+    : tweak.cta
+
+  return (
+    <div
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      className={`rounded-[16px] p-4 flex flex-col gap-3 transition-all ${
+        isApplied
+          ? "bg-[#2AE855]/30 opacity-90"
+          : isDragging
+          ? "bg-white/80 dark:bg-white/20 ring-2 ring-dashed ring-[var(--card-fg)]"
+          : "bg-white/45 hover:bg-white/60 dark:bg-white/10 dark:hover:bg-white/15"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span
+          className={`text-[10px] font-mono uppercase tracking-[0.15em] px-2 py-0.5 rounded-full ${meta.accent}`}
+        >
+          {meta.label}
+        </span>
+        {isApplied ? (
+          <span className="text-[10px] font-mono uppercase tracking-[0.15em] px-2 py-0.5 rounded-full bg-[#2AE855] text-black font-semibold">
+            applied
+          </span>
+        ) : (
+          <span className="text-[10px] font-mono opacity-60">{tweak.lift}</span>
+        )}
+      </div>
+
+      {/* Drop zone / preview */}
+      {previewUrl ? (
+        <div className="relative aspect-[4/3] rounded-[12px] overflow-hidden bg-black/5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={previewUrl}
+            alt={file?.name || "Storefront preview"}
+            className="w-full h-full object-cover"
+          />
+          {!isApplied && !isApplying && (
+            <button
+              type="button"
+              onClick={clearFile}
+              aria-label="Remove photo"
+              className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-black transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {isApplied && (
+            <div className="absolute inset-0 bg-[#2AE855]/30 flex items-end p-2">
+              <span className="text-[10px] font-mono uppercase tracking-[0.15em] px-2 py-0.5 rounded-full bg-[#2AE855] text-black font-semibold">
+                live on google
+              </span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onPickClick}
+          className={`aspect-[4/3] rounded-[12px] border-2 border-dashed flex flex-col items-center justify-center gap-1.5 px-2 text-center transition-colors ${
+            isDragging
+              ? "border-[var(--card-fg)] bg-[var(--card-fg)]/5"
+              : "border-[var(--card-fg)]/25 hover:border-[var(--card-fg)]/55"
+          }`}
+        >
+          <Upload className="w-5 h-5 opacity-70" aria-hidden />
+          <p className="text-xs font-medium leading-tight">
+            {isDragging ? "Drop to stage" : "Drop image or click to pick"}
+          </p>
+          <p className="text-[10px] font-mono opacity-55 leading-tight">
+            jpg · png · webp · 5 mb max
+          </p>
+        </button>
+      )}
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          if (f) acceptFile(f)
+        }}
+      />
+
+      {/* Body */}
+      <div className="flex-1">
+        <p className="text-sm font-semibold leading-snug">{tweak.title}</p>
+        <p className="text-xs opacity-75 mt-1 line-clamp-2">
+          {file
+            ? `${file.name} · ${formatBytes(file.size)}`
+            : tweak.reason}
+        </p>
+        {error && (
+          <p className="text-[11px] font-mono text-red-700 dark:text-red-300 mt-1">
+            {error}
+          </p>
+        )}
+      </div>
+
+      {/* Primary CTA */}
+      <Button
+        onClick={file ? handleDeploy : onPickClick}
+        disabled={isApplied || isApplying}
+        className={`h-10 w-full rounded-full font-semibold btn-squish transition-all text-sm ${
+          isApplied
+            ? "bg-[#2AE855] text-black"
+            : "bg-[var(--card-fg)] text-[var(--card-bg)] hover:brightness-110"
+        }`}
+      >
+        {isApplying ? (
+          <span className="flex items-center gap-2">
+            <Spinner className="w-4 h-4" />
+            Uploading...
+          </span>
+        ) : isApplied ? (
+          <span className="flex items-center gap-1.5">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            {ctaLabel}
+          </span>
+        ) : (
+          ctaLabel
+        )}
+      </Button>
+    </div>
+  )
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }

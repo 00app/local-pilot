@@ -1,17 +1,21 @@
 import { NextRequest, NextResponse } from "next/server"
 
-// UK Postcode to location name mapping for better search results
+// UK Postcode to location name mapping for better search results.
+// SearchAPI requires fully-qualified `City, Region, Country` strings (it
+// uses Google's UULE location encoding under the hood) — bare "Brighton, UK"
+// returns HTTP 400. Always include the region (England / Scotland / etc.)
+// and "United Kingdom" spelled out.
 const postcodeToLocation: Record<string, string> = {
-  "BN1": "Brighton, UK",
-  "BN2": "Brighton, UK", 
-  "BN3": "Hove, UK",
-  "E1": "East London, UK",
-  "SW1": "Westminster, London, UK",
-  "M1": "Manchester, UK",
-  "B1": "Birmingham, UK",
-  "BS1": "Bristol, UK",
-  "EH1": "Edinburgh, UK",
-  "G1": "Glasgow, UK",
+  "BN1": "Brighton, England, United Kingdom",
+  "BN2": "Brighton, England, United Kingdom",
+  "BN3": "Hove, England, United Kingdom",
+  "E1": "London, England, United Kingdom",
+  "SW1": "London, England, United Kingdom",
+  "M1": "Manchester, England, United Kingdom",
+  "B1": "Birmingham, England, United Kingdom",
+  "BS1": "Bristol, England, United Kingdom",
+  "EH1": "Edinburgh, Scotland, United Kingdom",
+  "G1": "Glasgow, Scotland, United Kingdom",
 }
 
 interface SearchResult {
@@ -37,6 +41,7 @@ interface ScrapeResponse {
   postcode: string
   businessType: string
   totalFound: number
+  isLive: boolean
 }
 
 export async function POST(req: NextRequest) {
@@ -57,7 +62,8 @@ export async function POST(req: NextRequest) {
     // Extract postcode prefix for location lookup
     const postcodePrefix = postcode.replace(/\s+/g, "").slice(0, 3).toUpperCase()
     const shortPrefix = postcode.replace(/\s+/g, "").slice(0, 2).toUpperCase()
-    const location = postcodeToLocation[postcodePrefix] || postcodeToLocation[shortPrefix] || `${postcode}, UK`
+    // Fallback is a fully-qualified string so SearchAPI's UULE encoder accepts it.
+    const location = postcodeToLocation[postcodePrefix] || postcodeToLocation[shortPrefix] || "England, United Kingdom"
 
     // Build SearchAPI.io request using google_local engine
     const params = new URLSearchParams({
@@ -70,7 +76,11 @@ export async function POST(req: NextRequest) {
     const response = await fetch(`https://www.searchapi.io/api/v1/search?${params}`)
 
     if (!response.ok) {
-      console.error("[v0] SearchAPI error:", response.status)
+      // Pull the SearchAPI error body so the dev server log tells us *why* —
+      // status alone hides the real cause (e.g. bad location, quota exhausted,
+      // invalid engine). Falling back to mock keeps the UI functional.
+      const body = await response.text().catch(() => "")
+      console.error("[scrape] SearchAPI error:", response.status, body.slice(0, 300))
       return NextResponse.json(getMockData(postcode, businessType))
     }
 
@@ -93,6 +103,7 @@ export async function POST(req: NextRequest) {
       postcode,
       businessType,
       totalFound: data.local_results?.length || 0,
+      isLive: true,
     } as ScrapeResponse)
 
   } catch (error) {
@@ -128,5 +139,6 @@ function getMockData(postcode: string, businessType: string): ScrapeResponse {
     postcode,
     businessType,
     totalFound: competitors.length,
+    isLive: false,
   }
 }

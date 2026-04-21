@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { generateStrategy, type PostTone, type EnvMode, type OvenHeat } from "@/lib/strategy"
@@ -66,7 +65,6 @@ export function SocialSyncCard({
   const [ig, setIg] = useState<InstagramLatest | null>(null)
   const [tone, setTone] = useState<PostTone>("direct")
   const [userEdited, setUserEdited] = useState(false)
-  const [lastReason, setLastReason] = useState<string | null>(null)
 
   // Fetch the latest IG post when a handle is provided.
   useEffect(() => {
@@ -103,7 +101,6 @@ export function SocialSyncCard({
       tone,
     })
     setPostText(move.optimized_post)
-    setLastReason(move.surgical_reason)
   }, [ig, postcode, street, envMode, ovenStatus, tone, userEdited, isEditing])
 
   const alternativePosts = useMemo(() => {
@@ -143,9 +140,6 @@ export function SocialSyncCard({
 
   const detectedLabel = ig?.post ? timeAgo(ig.post.posted_at) : lastSync
   const isLive = Boolean(ig?.isLive)
-  const stagedHint = ig?.post?.image_url
-    ? "Image auto-staged for the Google post. 2× click-rate vs text-only."
-    : null
 
   return (
     <div className="strategy-card card-mint h-full">
@@ -265,22 +259,6 @@ export function SocialSyncCard({
           readOnly={!isEditing}
           rows={3}
         />
-
-        {/* Signal-to-SEO reasoning footer */}
-        {lastReason && !userEdited && (
-          <motion.p
-            key={lastReason}
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 0.75, y: 0 }}
-            transition={{ duration: 0.25 }}
-            className="mt-2 text-[10px] font-mono leading-snug"
-          >
-            {lastReason}
-          </motion.p>
-        )}
-        {stagedHint && (
-          <p className="mt-1 text-[10px] font-mono opacity-60">{stagedHint}</p>
-        )}
       </div>
 
       {/* Deploy Button */}

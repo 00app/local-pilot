@@ -88,6 +88,12 @@ async function respond(username: string) {
     const data = await res.json()
 
     const profile = data.profile || data.user || {}
+    // SearchAPI's `tiktok_profile` engine returns only a `profile` object —
+    // no `videos` array. We still check the secondary keys in case the
+    // schema grows, but in practice `latest` will be undefined and we
+    // surface profile-only metadata (followers, display name, total hearts)
+    // so The Triangle's TikTok cell can still render "live" with a handle
+    // + follower count, even without a latest-video preview.
     const videos: TikTokVideoNode[] =
       data.videos || data.posts || data.items || profile.videos || []
     const latest = videos[0]
@@ -96,7 +102,7 @@ async function respond(username: string) {
       username,
       display_name: profile.display_name || profile.nickname || profile.name,
       followers: profile.followers || profile.follower_count,
-      likes: profile.likes || profile.heart_count,
+      likes: profile.likes || profile.heart_count || profile.hearts,
       post: latest
         ? {
             image_url:

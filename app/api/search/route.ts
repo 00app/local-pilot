@@ -67,7 +67,13 @@ async function respond(q: string, location?: string) {
       .slice(0, 8)
       .map((r: RelatedSearch) => r.query)
 
-    const paa: { question: string; answer: string }[] = (data.answer_box?.organic_result ? [] : data.people_also_ask || [])
+    // SearchAPI.io returns this array as `related_questions` (their canonical
+    // name), not `people_also_ask` (SerpApi's name). Fall back to the
+    // latter if SearchAPI ever aliases it, but in practice only the first
+    // branch fires. We keep the outward-facing `people_also_ask` field name
+    // on our own response so the Authority Lab card's markup stays stable.
+    const rawQuestions = data.related_questions || data.people_also_ask || []
+    const paa: { question: string; answer: string }[] = rawQuestions
       .slice(0, 4)
       .map((p: PeopleAlsoAsk) => ({
         question: p.question,

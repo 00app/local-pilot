@@ -88,8 +88,14 @@ async function respond({ q, postcode, ll, location }: RespondArgs) {
   })
   if (ll) params.set("ll", ll)
   else if (location) params.set("location", location)
-  else if (postcode)
-    params.set("location", postcode.toUpperCase().startsWith("BN") ? "Brighton, UK" : postcode)
+  else if (postcode) {
+    // SearchAPI wants a fully-qualified location string (UULE-encoded). Bare
+    // `BN1 4EN` or `Brighton, UK` both 400 — promote BN* to the full form.
+    const loc = postcode.toUpperCase().startsWith("BN")
+      ? "Brighton, England, United Kingdom"
+      : "England, United Kingdom"
+    params.set("location", loc)
+  }
 
   try {
     const res = await fetch(`https://www.searchapi.io/api/v1/search?${params}`)

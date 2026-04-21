@@ -271,9 +271,17 @@ export function Dashboard() {
             <ThemeToggle />
           </div>
 
-          {/* Strip 2 — Pilot status · oven · business · deploys */}
+          {/* Strip 2 — Oven · business · pilot · deploys */}
           <div className="flex items-center justify-between gap-4 py-2.5 border-t border-[var(--hairline)]">
             <div className="flex items-center gap-3 min-w-0">
+              <OvenStatusToggle status={ovenStatus} onStatusChange={setOvenStatus} />
+            </div>
+
+            <div className="flex items-center gap-4 min-w-0">
+              <p className="hidden md:block text-sm text-muted-foreground truncate">
+                {businessName} ·{" "}
+                <span className="font-medium text-foreground">{postcode}</span>
+              </p>
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--surface-chip)] border border-[var(--surface-chip-border)] shrink-0">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#2AE855] opacity-75" />
@@ -283,14 +291,6 @@ export function Dashboard() {
                   pilot: <span className="font-semibold text-[#2AE855]">active</span>
                 </span>
               </div>
-              <OvenStatusToggle status={ovenStatus} onStatusChange={setOvenStatus} />
-            </div>
-
-            <div className="flex items-center gap-4 min-w-0">
-              <p className="hidden md:block text-sm text-muted-foreground truncate">
-                {businessName} ·{" "}
-                <span className="font-medium text-foreground">{postcode}</span>
-              </p>
               <div className="hidden xl:block h-5 w-px bg-[var(--hairline)]" />
               <p className="hidden xl:block text-xs font-mono text-muted-foreground uppercase tracking-wider shrink-0">
                 {deployedCount} deployed today

@@ -409,6 +409,11 @@
     width: 100%;
     transition: background 200ms ease;
     font-family: inherit;
+    /* Let the textarea grow inside a flex column, and scroll internally for
+       long drafts — prevents overlong content from pushing the CTA past the
+       card's overflow: hidden boundary. */
+    min-height: 0;
+    overflow-y: auto;
   }
   .editor-field:focus {
     background: rgba(255, 255, 255, 0.85);
@@ -455,8 +460,13 @@
     line-height: 1.5;
     color: inherit;
     margin-top: 8px;
+    /* min-height floor keeps the field readable at small row counts, but we
+       intentionally drop max-height so the flex column can grow the editor
+       into whatever vertical space the card has. Prior `max-height: 120px`
+       was capping the editor and forcing downstream footers (Signal-to-SEO
+       reasoning, staged image hint) past the card's `overflow: hidden`
+       boundary — that's the "box clipping" this pair solves. */
     min-height: 80px;
-    max-height: 120px;
     outline: none;
     transition: background 200ms ease;
     resize: none;
@@ -475,6 +485,36 @@
   }
   .dark .post-editor:focus {
     background: rgba(42, 232, 85, 0.2);
+  }
+
+  /* Thin translucent scrollbar shared across both editors. Keeps the clinical
+     flat aesthetic — no heavy chrome, just a subtle 6px track/thumb that
+     inherits from the card's ink so it reads on every tint in both themes. */
+  .post-editor,
+  .editor-field {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  }
+  .dark .post-editor,
+  .dark .editor-field {
+    scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+  }
+  .post-editor::-webkit-scrollbar,
+  .editor-field::-webkit-scrollbar {
+    width: 6px;
+  }
+  .post-editor::-webkit-scrollbar-thumb,
+  .editor-field::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+  }
+  .dark .post-editor::-webkit-scrollbar-thumb,
+  .dark .editor-field::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.25);
+  }
+  .post-editor::-webkit-scrollbar-track,
+  .editor-field::-webkit-scrollbar-track {
+    background: transparent;
   }
 
   /* Responsive */

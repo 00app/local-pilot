@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
@@ -12,6 +12,32 @@ interface Competitor {
   address: string
 }
 
+export interface SocialSnapshot {
+  platform: "instagram" | "tiktok" | "facebook"
+  handle: string
+  displayName?: string
+  followers?: number
+  latestPost?: {
+    image?: string
+    caption: string
+    likes?: number
+    comments?: number
+    postedAt: string
+    permalink?: string
+  }
+  isLive: boolean
+}
+
+export interface MapsPinSnapshot {
+  query: string
+  lat?: number
+  lng?: number
+  topResultName?: string
+  topResultAddress?: string
+  nearbyCount: number
+  isLive: boolean
+}
+
 interface OnboardingProps {
   onComplete: (data: {
     url: string
@@ -20,6 +46,8 @@ interface OnboardingProps {
     tiktok?: string
     facebook?: string
     competitors?: Competitor[]
+    socials?: SocialSnapshot[]
+    mapsPin?: MapsPinSnapshot
   }) => void
 }
 
@@ -31,6 +59,63 @@ interface ScrapeStep {
   status: "pending" | "loading" | "success"
 }
 
+async function fetchJSON<T>(
+  url: string,
+  body: Record<string, unknown>,
+): Promise<T | null> {
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) return null
+    return (await res.json()) as T
+  } catch {
+    return null
+  }
+}
+
+async function fetchSocial(
+  url: string,
+  body: Record<string, unknown>,
+  platform: SocialSnapshot["platform"],
+): Promise<SocialSnapshot | null> {
+  const data = await fetchJSON<{
+    username?: string
+    handle?: string
+    full_name?: string
+    display_name?: string
+    page_name?: string
+    followers?: number
+    likes?: number
+    post?: {
+      image_url?: string
+      thumbnail_url?: string
+      caption?: string
+      likes?: number
+      comments?: number
+      posted_at?: string
+    }
+    isLive?: boolean
+  }>(url, body)
+  if (!data || !data.post) return null
+  return {
+    platform,
+    handle: data.username || data.handle || String(body.username || body.page || ""),
+    displayName: data.full_name || data.display_name || data.page_name,
+    followers: data.followers || data.likes,
+    latestPost: {
+      image: data.post.image_url || data.post.thumbnail_url,
+      caption: (data.post.caption || "").toString(),
+      likes: data.post.likes,
+      comments: data.post.comments,
+      postedAt: data.post.posted_at || new Date().toISOString(),
+    },
+    isLive: Boolean(data.isLive),
+  }
+}
+
 export function Onboarding({ onComplete }: OnboardingProps) {
   const [step, setStep] = useState<Step>(1)
   const [url, setUrl] = useState("")
@@ -39,71 +124,126 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [tiktok, setTiktok] = useState("")
   const [facebook, setFacebook] = useState("")
   
-  // Scrape animation state
+  // Scrape animation state. Each row maps 1:1 to a real SearchAPI.io engine.
   const [scrapeSteps, setScrapeSteps] = useState<ScrapeStep[]>([
-    { id: "google", label: "Finding Google Profile", status: "pending" },
-    { id: "instagram", label: "Scraping Instagram Pulse", status: "pending" },
-    { id: "gap", label: "Calculating Postcode Gap", status: "pending" },
-    { id: "ai", label: "Generating Surgical Strategy", status: "pending" },
+    { id: "maps", label: "Locating Google profile", status: "pending" },
+    { id: "socials", label: "Syncing social channels", status: "pending" },
+    { id: "gap", label: "Calculating postcode gap", status: "pending" },
+    { id: "ai", label: "Generating surgical strategy", status: "pending" },
   ])
   const [showCelebration, setShowCelebration] = useState(false)
-  const [scrapedCompetitors, setScrapedCompetitors] = useState<Competitor[]>([])
 
-  // Run the scrape animation sequence
+  // Strict-mode + stale-dep safe: gate the whole async sequence behind a ref
+  // so React 19 Strict Mode's double-mount doesn't kick the scrape twice,
+  // and so the dep array can stay narrow (just `step`) without the effect
+  // re-firing every time we set a piece of scraped state mid-flight.
+  const hasRunRef = useRef(false)
+
   useEffect(() => {
     if (step !== 5) return
+    if (hasRunRef.current) return
+    hasRunRef.current = true
+
+    const setStatus = (id: string, status: ScrapeStep["status"]) =>
+      setScrapeSteps((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)))
 
     const runScrapeSequence = async () => {
-      // Step 1: Finding Google Profile
-      setScrapeSteps(prev => prev.map(s => s.id === "google" ? { ...s, status: "loading" } : s))
-      await new Promise(r => setTimeout(r, 1200))
-      setScrapeSteps(prev => prev.map(s => s.id === "google" ? { ...s, status: "success" } : s))
+      // Snapshot user inputs to pass through to onComplete at the end. State
+      // writes inside the effect no longer retrigger it, so we read these
+      // once at the top for clarity.
+      const inputs = { url, postcode, instagram, tiktok, facebook }
 
-      // Step 2: Scraping Instagram
-      await new Promise(r => setTimeout(r, 400))
-      setScrapeSteps(prev => prev.map(s => s.id === "instagram" ? { ...s, status: "loading" } : s))
-      await new Promise(r => setTimeout(r, 1500))
-      setScrapeSteps(prev => prev.map(s => s.id === "instagram" ? { ...s, status: "success" } : s))
+      let competitors: Competitor[] = []
+      let socials: SocialSnapshot[] = []
+      let mapsPin: MapsPinSnapshot | undefined
 
-      // Step 3: Calculating Gap (real API call)
-      await new Promise(r => setTimeout(r, 400))
-      setScrapeSteps(prev => prev.map(s => s.id === "gap" ? { ...s, status: "loading" } : s))
-      
-      // Call the real scrape API
+      // Step 1 — Google Maps profile (google_maps engine). Minimum 1.2s so
+      // the checkmark doesn't snap before the user registers the label.
+      setStatus("maps", "loading")
+      const [mapsResult] = await Promise.all([
+        fetchJSON<MapsPinSnapshot>("/api/maps", { postcode, q: `bakery ${postcode}` }),
+        new Promise((r) => setTimeout(r, 1200)),
+      ])
+      if (mapsResult) mapsPin = mapsResult
+      setStatus("maps", "success")
+
+      // Step 2 — Socials in parallel (IG + TikTok + FB). Only fire the
+      // engines we have handles for; skip the rest and still pass the row.
+      await new Promise((r) => setTimeout(r, 300))
+      setStatus("socials", "loading")
+      const socialPromises: Promise<SocialSnapshot | null>[] = []
+      if (instagram.trim())
+        socialPromises.push(
+          fetchSocial("/api/instagram", { username: instagram }, "instagram"),
+        )
+      if (tiktok.trim())
+        socialPromises.push(
+          fetchSocial("/api/tiktok", { username: tiktok }, "tiktok"),
+        )
+      if (facebook.trim())
+        socialPromises.push(
+          fetchSocial("/api/facebook", { page: facebook }, "facebook"),
+        )
+      const [socialResults] = await Promise.all([
+        Promise.all(socialPromises),
+        new Promise((r) => setTimeout(r, 1400)),
+      ])
+      socials = socialResults.filter((s): s is SocialSnapshot => s !== null)
+      setStatus("socials", "success")
+
+      // Step 3 — Postcode gap (google_local).
+      await new Promise((r) => setTimeout(r, 300))
+      setStatus("gap", "loading")
       try {
-        const response = await fetch("/api/scrape", {
+        const res = await fetch("/api/scrape", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ postcode, businessType: "bakery" }),
         })
-        if (response.ok) {
-          const data = await response.json()
-          setScrapedCompetitors(data.competitors || [])
+        if (res.ok) {
+          const data = await res.json()
+          competitors = data.competitors || []
         }
       } catch {
-        // Continue with mock data on error
+        /* fallback handled downstream */
       }
-      
-      await new Promise(r => setTimeout(r, 800))
-      setScrapeSteps(prev => prev.map(s => s.id === "gap" ? { ...s, status: "success" } : s))
+      await new Promise((r) => setTimeout(r, 600))
+      setStatus("gap", "success")
 
-      // Step 4: Generating Strategy
-      await new Promise(r => setTimeout(r, 400))
-      setScrapeSteps(prev => prev.map(s => s.id === "ai" ? { ...s, status: "loading" } : s))
-      await new Promise(r => setTimeout(r, 1800))
-      setScrapeSteps(prev => prev.map(s => s.id === "ai" ? { ...s, status: "success" } : s))
+      // Step 4 — SERP intent warm-up (google). Fire-and-forget so the Lab
+      // widget's own fetch can read a warm cache; we don't block on it.
+      await new Promise((r) => setTimeout(r, 300))
+      setStatus("ai", "loading")
+      fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          q: `best artisan sourdough ${postcode}`,
+          location: postcode.toUpperCase().startsWith("BN") ? "Brighton, UK" : undefined,
+        }),
+      }).catch(() => {})
+      await new Promise((r) => setTimeout(r, 1500))
+      setStatus("ai", "success")
 
-      // Celebration!
-      await new Promise(r => setTimeout(r, 500))
+      // Celebration
+      await new Promise((r) => setTimeout(r, 500))
       setShowCelebration(true)
-      
-      // Complete after celebration
-      await new Promise(r => setTimeout(r, 1500))
-      onComplete({ url, postcode, instagram, tiktok, facebook, competitors: scrapedCompetitors })
+      await new Promise((r) => setTimeout(r, 1500))
+
+      onComplete({
+        ...inputs,
+        competitors,
+        socials,
+        mapsPin,
+      })
     }
 
     runScrapeSequence()
-  }, [step, url, postcode, instagram, tiktok, facebook, onComplete, scrapedCompetitors])
+    // Deps deliberately narrow — the sequence reads inputs at the top and
+    // onComplete is called exactly once at the tail. Adding user-input
+    // deps here is what caused the original double-scrape.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
 
   const handleFinish = () => {
     setStep(5) // Go to scrape animation
@@ -456,7 +596,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               <div
                 key={s}
                 className={`w-2 h-2 rounded-full transition-colors ${
-                  step >= s ? 'bg-[#2AE855]' : 'bg-border'
+                  step >= s ? 'bg-[#2AE855]' : 'bg-neutral-300 dark:bg-neutral-700'
                 }`}
               />
             ))}

@@ -1,15 +1,26 @@
 "use client"
 
 import { useState } from "react"
-import { motion } from "framer-motion"
+import { motion, AnimatePresence } from "framer-motion"
 import { Spinner } from "@/components/ui/spinner"
 
 interface SurgicalLaunchProps {
   onLaunch: () => void | Promise<void>
   movesReady: number
+  /**
+   * Optional stack of images pulled from the live social signals (top of the
+   * stack = The Pulse, then the Triangle leader). Rendered as a 40px 1:1
+   * thumbnail row in the CTA to show exactly what's about to ship — Google
+   * Business Posts with images get ~2× the click-rate of text-only.
+   */
+  stagedImages?: string[]
 }
 
-export function SurgicalLaunch({ onLaunch, movesReady }: SurgicalLaunchProps) {
+export function SurgicalLaunch({
+  onLaunch,
+  movesReady,
+  stagedImages = [],
+}: SurgicalLaunchProps) {
   const [isLaunching, setIsLaunching] = useState(false)
   const [hasLaunched, setHasLaunched] = useState(false)
 
@@ -46,6 +57,37 @@ export function SurgicalLaunch({ onLaunch, movesReady }: SurgicalLaunchProps) {
         <p className="text-sm text-white/60 dark:text-black/60 mt-1">
           Deploy all {movesReady} moves to Google in one tap.
         </p>
+
+        {stagedImages.length > 0 && !isLaunching && !hasLaunched && (
+          <AnimatePresence>
+            <motion.div
+              key="staged"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+              className="mt-3 flex items-center gap-2"
+            >
+              <span className="text-[10px] font-mono uppercase tracking-[0.15em] text-white/50 dark:text-black/50">
+                staging
+              </span>
+              <div className="flex -space-x-1.5">
+                {stagedImages.slice(0, 3).map((src, i) => (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    key={`${src}-${i}`}
+                    src={src}
+                    alt=""
+                    className="w-9 h-9 rounded-lg object-cover ring-2 ring-[#1a1a1a] dark:ring-white bg-white/10"
+                  />
+                ))}
+              </div>
+              <span className="text-[11px] text-white/70 dark:text-black/70">
+                {stagedImages.length} image{stagedImages.length > 1 ? "s" : ""} attached
+              </span>
+            </motion.div>
+          </AnimatePresence>
+        )}
       </div>
 
       <div className="shrink-0">

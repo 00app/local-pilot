@@ -77,6 +77,7 @@ Implemented in `components/onboarding.tsx`.
 | 04 | **The Hijack** — Community events | 4 | sky | `components/community-hijack-card.tsx` |
 | 05 | **The Lab** — Authority / long-term SEO | 6 | lavender | `components/authority-lab-card.tsx` |
 | 06 | **The Battle** — Competitor radar | 6 | coral | `components/competitor-radar-card.tsx` |
+| 08 | **The Triangle** — Cross-platform social + Maps pin | 12 | mint | `components/social-triangle-card.tsx` |
 | 07 | **The Shaper** — SEO mechanic / technical tweaks | 12 | coral | `components/seo-shaper-card.tsx` |
 | Master | **Surgical launch** (master CTA) | 12 | `#1a1a1a` | `components/surgical-launch.tsx` |
 
@@ -119,6 +120,15 @@ Footer closer: *"Stop managing yesterday's data. Start leading tomorrow's neighb
 - **Click any rival row** → expands in place with their 3 latest Google reviews, fetched live via `/api/reviews` (SearchAPI `google_maps` → `google_maps_reviews`). Per-rival cache so re-opening is instant. Chevron rotates, row surface lightens on hover, live/demo chip inside the expansion mirrors the card-level chip.
 - **Footer:** last-scan timestamp + live/demo chip + "Re-scan postcode" (live re-fetch; collapses any open expansion).
 
+### 08 · The Triangle (mint, col 12)
+- **Data engines (four-in-one):** `/api/instagram` (`instagram_profile`), `/api/tiktok` (`tiktok_profile`), `/api/facebook` (`facebook_business_page`), `/api/maps` (`google_maps`)
+- **Hero stat:** `{liveChannels} / {totalChannels}` social channels live
+- **Layout:** 4-cell grid — Instagram, TikTok, Facebook, and a Google Maps pin. Each cell shows brand glyph + handle + latest post thumbnail + caption quote + time-since, or a "not connected" state if the handle was skipped in onboarding.
+- **Freshest highlight:** the platform with the most recent post is ringed in `#2AE855` and tagged `fresh`; ties break on engagement (`likes + comments`).
+- **Syndicate button per platform:** re-runs `generateStrategy()` against the source caption and surfaces the optimised Google Business Post in a toast, framed as "Syndicated `{platform}` → Google."
+- **Maps cell:** renders the top `google_maps` local-pack hit — name, address, lat/lng, and a `{nearbyCount} nearby` summary. Anchors the Pilot to a real coordinate pair so the demo can show "we know exactly which pin you are on the map."
+- **Footer:** live/demo chip + lead-signal mono line + "Re-scan triangle" (parallel refresh of all four engines)
+
 ### Master CTA — Surgical launch
 - Full-width dark `#1a1a1a` slab, 30px radius, framer-motion spring entrance
 - Fires 5-origin confetti barrage + toast: *"Surgical move deployed."*
@@ -145,25 +155,51 @@ Clickable col-12 atmospheric sensor between the status bar and execution tier. T
 ### Oven Status Toggle
 Compact 3-state pill in the header (`Hot` / `Low` / `Out`). Feeds the environment wedge's compound brain. Component: `components/oven-status-toggle.tsx`.
 
-### generateStrategy()
-Pure function in `lib/strategy.ts`. Converts a raw social caption into a postcode-anchored Google Post:
+### generateStrategy() — the Signal-to-SEO pipeline
+Pure function in `lib/strategy.ts`. Converts a raw social caption into a postcode-anchored Google Post via an explicit 4-layer pipeline: **(1)** strip social fluff (hashtags, emoji, "link in bio"), **(2)** tilt to the matching GBP intent category (`product | event | vibe`), **(3)** inject the current environment + oven context, **(4)** close with a tone-aware proximity CTA.
 
 ```ts
 generateStrategy({
-  caption: "New sourdough out of the oven!",
+  caption: "New sourdough out of the oven! 🍞 Link in bio #brighton",
   postcode: "BN1 4EN",
   street: "Sydney Street",
+  envMode: "rain",      // optional
+  ovenStatus: "HOT",    // optional
+  tone: "direct",       // "direct" | "story" | "offer" (default "direct")
 })
-// → { optimized_post: "Fresh artisan sourdough available today on Sydney Street, BN1.", ... }
+// → {
+//   optimized_post: "Fresh artisan sourdough available today. Perfect for a rainy-day refuge — the oven's still on. Available now on Sydney Street, BN1.",
+//   surgical_reason: "Signal-to-SEO: stripped 2 social-only tokens → tilted to product-intent lead → injected environment context → anchored to Sydney Street, BN1 → direct tone.",
+//   keywords_hit: ["sourdough", "sydney street", "bn1"],
+//   tone: "direct",
+//   layers: { stripped: [...], heroKeyword: "sourdough", intentCategory: "product", ... },
+// }
 ```
 
-Uses intent hooks (sourdough / croissant / coffee / cake / brunch), stopword filtering, and postcode-area normalisation.
+### Social engine — `lib/social-engine.ts`
+The normalization layer between the three SearchAPI payload shapes and every widget that reads social. Exports:
+- `normalizeSocialData(platform, raw)` — raw IG/TikTok/FB payload → unified `SocialSignal`.
+- `calculateFreshnessLeader(signals)` — recency-first with engagement tie-break (<24h bucket).
+- `detectViral(signal)` — 5× baseline thresholds (TikTok: views/followers; IG: engagement/3%; FB: engagement/1%).
+- `formatAge(iso)` — the `5m / 2h / 3d` cadence used across the grid.
 
 ---
 
-## 7. API Routes — three live engines
+## 7. API Routes — six live engines
 
 All routes fall back to curated demo data when `SEARCHAPI_API_KEY` is unset. When the key is present, every live/demo chip across the cockpit flips green simultaneously.
+
+The full engine matrix — one `SEARCHAPI_API_KEY` unlocks all six:
+
+| Route | SearchAPI engine | Drives |
+| :--- | :--- | :--- |
+| `/api/scrape` | `google_local` | The Battle leaderboard |
+| `/api/reviews` | `google_maps` + `google_maps_reviews` | The Battle click-to-expand reviews |
+| `/api/search` | `google` | The Lab (PAA + related searches) |
+| `/api/instagram` | `instagram_profile` | The Pulse + The Triangle (IG cell) |
+| `/api/tiktok` | `tiktok_profile` | The Triangle (TikTok cell) |
+| `/api/facebook` | `facebook_business_page` | The Triangle (Facebook cell) |
+| `/api/maps` | `google_maps` | The Triangle (Maps pin) + onboarding step 1 |
 
 ### `POST /api/scrape`
 SearchAPI `google_local` — rivals in the postcode.
@@ -196,6 +232,27 @@ curl -X POST http://localhost:3000/api/reviews \
   -d '{"name":"GAIL'\''s Bakery","postcode":"BN1 4EN"}'
 ```
 Returns `{ rival, reviews: [{ author, rating, text, time }], isLive }`. Falls back to a seeded curated mock pool (rotated by name hash) when the key is unset, so every rival reads a different set even offline.
+
+### `GET|POST /api/tiktok`
+SearchAPI `tiktok_profile` — latest video + profile stats.
+```bash
+curl "http://localhost:3000/api/tiktok?username=therock"
+```
+Returns `{ username, display_name, followers, likes, post: { image_url, caption, likes, comments, views, posted_at, permalink }, isLive }`. Powers The Triangle's TikTok cell.
+
+### `GET|POST /api/facebook`
+SearchAPI `facebook_business_page` — latest post from a business page. Accepts a raw numeric `page_id`, a full page URL, or a bare handle (`/yourpage`, `https://facebook.com/pages/X/12345`, `@yourpage`) — server resolves to whatever token the engine needs.
+```bash
+curl "http://localhost:3000/api/facebook?page_id=100089525329756"
+```
+Returns `{ page_id, page_name, likes, followers, post: { image_url, caption, likes, comments, shares, posted_at, permalink }, isLive }`.
+
+### `GET|POST /api/maps`
+SearchAPI `google_maps` — Google Maps local-pack lookup. Accepts either `ll` (`@lat,lng,zoom`) or `location` / `postcode` (the route promotes `BN*` postcodes to `Brighton, UK` for the engine).
+```bash
+curl "http://localhost:3000/api/maps?q=Hotels&ll=%4040.7409208%2C-73.984625%2C13.87z"
+```
+Returns `{ query, lat, lng, topResultName, topResultAddress, nearbyCount, isLive }`. Powers The Triangle's Maps cell and the onboarding Discovery Scraper step 1.
 
 ---
 
@@ -233,12 +290,15 @@ app/
 └── api/
     ├── scrape/route.ts       # google_local → The Battle
     ├── search/route.ts       # google → The Lab
-    ├── instagram/route.ts    # instagram_profile → The Pulse
+    ├── instagram/route.ts    # instagram_profile → The Pulse + The Triangle
+    ├── tiktok/route.ts       # tiktok_profile → The Triangle
+    ├── facebook/route.ts     # facebook_business_page → The Triangle
+    ├── maps/route.ts         # google_maps → The Triangle + onboarding step 1
     └── reviews/route.ts      # google_maps + google_maps_reviews → The Battle expansion
 
 components/
 ├── dashboard.tsx             # Full cockpit (v1.2.1 — moved from app/page.tsx)
-├── onboarding.tsx            # 5-step calibration + scrape animation
+├── onboarding.tsx            # 5-step calibration + parallel discovery scrape
 ├── pilot-status-bar.tsx      # 01 · col 12
 ├── environment-wedge.tsx     # Contextual atmosphere sensor
 ├── oven-status-toggle.tsx    # Header oven toggle
@@ -247,13 +307,15 @@ components/
 ├── community-hijack-card.tsx # 04 · The Hijack (sky)
 ├── authority-lab-card.tsx    # 05 · The Lab (lavender)
 ├── competitor-radar-card.tsx # 06 · The Battle (coral)
+├── social-triangle-card.tsx  # 08 · The Triangle (mint, col-12) — IG + TikTok + FB + Maps
 ├── seo-shaper-card.tsx       # 07 · The Shaper (coral, col-12)
 ├── pilot-info.tsx            # Reusable "intelligence" popover (every card)
 ├── surgical-launch.tsx       # Master col-12 CTA
 └── ui/                       # shadcn primitives (button, spinner, sonner…)
 
 lib/
-├── strategy.ts               # generateStrategy()
+├── strategy.ts               # generateStrategy() — 4-layer Signal-to-SEO pipeline
+├── social-engine.ts          # SocialSignal + normalize / freshness / viral detection
 ├── types.ts                  # OvenStatus, Competitor, BusinessData
 └── utils.ts                  # cn()
 ```
@@ -352,6 +414,27 @@ Maintained chronologically; every feature drop below ships as a discrete atomic 
     - **Click-to-expand rival reviews (The Battle).** Each row in the Competitor Radar leaderboard is now a keyboard-accessible `<button>` that toggles an inline expansion revealing the rival's 3 latest Google reviews (author, star rating, quote, time-since). Uses an `AnimatePresence` height/opacity spring (same `--spring` curve), a chevron rotates 180° when open, and the row surface lightens on hover / focus ring traces the card-fg. Per-rival result cache so re-opening a rival is instant; `handleScan` collapses any open row on re-scan. Only one rival open at a time to keep the card compact.
     - **New `/api/reviews` route.** Two-step SearchAPI pull: `google_maps` (resolve `name + postcode` → `place_id`) → `google_maps_reviews` (latest reviews). Falls back to a 6-entry curated review pool rotated by a cheap name-hash so every mock rival reads differently. Live/demo chip inside the expansion mirrors the card-level chip state, using the same green `#2AE855` token.
     - **CSS cull.** Removed unused utility classes from `globals.css`: `.big-num`, `.stat-number-xl`, `.dashboard-grid`, and the `.bg-{mint,sky,lemon,lavender,coral}` aliases (confirmed zero source references). Corresponding media-query override for `.stat-number-xl` also dropped. Spec-parity list in §2 trimmed to match.
+- **v1.4 — The Triangle + TikTok/Facebook/Maps engines + double-scrape fix:**
+    - **Double-scrape bug fixed** (`components/onboarding.tsx`). The discovery `useEffect` had `scrapedCompetitors` (and every user-input field) in its dep array, so `setScrapedCompetitors()` mid-sequence retriggered the whole async pipeline and fired every API call twice — plus React 19 Strict Mode's double-mount was a third trigger in dev. Replaced the setter-driven closure with a `hasRunRef` gate, trimmed the deps to just `[step]`, and lifted all scraped results into local variables that flow straight into `onComplete()` at the tail. The scrape now fires exactly once per calibration.
+    - **Three new SearchAPI engines wired end-to-end:**
+        - `/api/tiktok` wraps `tiktok_profile` — latest video cover + caption + play-count + like/comment counts. Accepts `@handle`, URL, or bare username; normalises all three.
+        - `/api/facebook` wraps `facebook_business_page` — latest post + page likes/followers. Accepts numeric `page_id`, full page URL, or bare handle; server extracts the token the engine needs (`/pages/X/12345` → `12345`, `facebook.com/yourpage` → `yourpage`, etc.).
+        - `/api/maps` wraps `google_maps` — top local-pack pin with lat/lng + address + nearby count. Accepts `ll` (`@lat,lng,zoom`), `location`, or a UK postcode (promotes `BN*` to `Brighton, UK` automatically).
+        - Every new route ships parity mock data for the Flour Pot demo so the offline story still shines when `SEARCHAPI_API_KEY` is unset.
+    - **The Triangle (widget 08, col-12, mint)** — new `components/social-triangle-card.tsx`. A 4-cell cross-platform surface showing Instagram, TikTok, Facebook, and a Google Maps pin side-by-side. Each cell: brand glyph + handle + latest-post thumbnail + caption line + time-since. The freshest post across all three socials gets a green `#2AE855` ring and `fresh` chip (ties broken on `likes + comments` engagement). A per-cell "→ google" syndicate button re-runs `generateStrategy()` against that platform's caption and surfaces the optimised Google Business Post in a toast ("Syndicated Instagram → Google"), closing the loop between the three social fires and the one SEO surface they all need to feed. Bottom strip: live/demo chip, lead-signal mono line, "Re-scan triangle" (parallel refresh of all four engines). Same `PilotInfo` intelligence popover pattern as the rest of the grid.
+    - **Onboarding discovery expanded.** Scrape sequence rebranded from four hand-waved animations into four real engine phases: (1) `/api/maps` to plant the Google profile pin, (2) `/api/instagram` + `/api/tiktok` + `/api/facebook` in parallel (only fires engines we have handles for), (3) `/api/scrape` for the postcode gap, (4) `/api/search` fire-and-forget to warm the Lab's SERP cache. The parallel social fan-out means three social pulls add ~0ms to the critical path.
+    - **Scraped signals thread into the cockpit.** `Onboarding` now returns `{ socials, mapsPin }` alongside the existing `{ url, postcode, competitors }`. `Dashboard` passes both into `SocialTriangleCard` as `initialSocials` + `initialMapsPin`, so the grid lands fully populated without a second round-trip — tapping "Re-scan triangle" on the card is a refresh, not a cold start.
+    - Grid order after v1.4: Status bar → Environment wedge → Execution tier (Pulse / Booster / Hijack) → Strategy tier (Lab / Battle) → **The Triangle (Col 12)** → The Shaper (Col 12) → Surgical launch.
+
+- **v1.5 — Signal-to-SEO engine: normalization, 4-layer strategy, tone pills, viral detection:**
+    - **New `lib/social-engine.ts` — the normalization layer.** Exports the single `SocialSignal` shape every widget now speaks (`platform, handle, mediaUrl, mediaType, caption, engagement, views?, followers?, timestamp, permalink?, isLive`), plus `normalizeSocialData(platform, raw)` that folds the three very different SearchAPI payload shapes (`instagram_profile`, `tiktok_profile`, `facebook_business_page`) into it. Also ships `calculateFreshnessLeader(signals)` (recency-first sort with engagement breaking ties inside the <24h bucket — returns `{signal, hoursOld, isRecent, tieBreaker}` so the UI can explain *why* this platform won the ring), `detectViral(signal)` (TikTok: `views ≥ 5× followers`; IG: `engagement ≥ 5 × 3% × followers`; FB: `5 × 1%` — returns multiplier + baseline or null), and `formatAge(iso)` (the `5m / 2h / 3d` cadence, consistent across every card).
+    - **Strategy engine rebuilt as an explicit 4-layer pipeline (`lib/strategy.ts`).** Every optimised post now flows through: **(1) Fluff strip** — regex-remove "link in bio", "check stories", "swipe up", "dm for details", "tag a friend", "follow us", all hashtags, all Unicode emoji (`U+1F300–U+1FAFF` + `U+2600–U+27BF`), then collapse whitespace. **(2) Intent tilt** — classify the caption as `product | event | vibe` and lead with the matching GBP-category-aligned phrase (product gets six hook families — sourdough, croissants, coffee, cakes, brunch, cinnamon — each with its canonical keyword; events cover Pride/markets/workshops; vibes cover outdoor/cosy). **(3) Environment injection** — `envMode + ovenStatus` pairs produce hand-tuned compound lines ("Perfect for a rainy-day refuge — the oven's still on", "Grab one warm before the sun pulls the queue out the door", "Fresh out of the oven — perfect for your morning dash"); environment-alone and oven-alone fall back to softer one-liners. **(4) Proximity CTA** — tone-aware street + postcode close (`direct` → "Available now on Sydney Street, BN1.", `story` → "Our bakers started at 4am so you could have this on Sydney Street, BN1.", `offer` → "Mention this post for 10% off your sourdough today at our BN1 shop."). The move returns a rich `{optimized_post, surgical_reason, keywords_hit, tone, layers}` — `layers` exposes what each stage did so the UI can tell the owner *why* the post changed (e.g. `Signal-to-SEO: stripped 2 social-only tokens → tilted to product-intent lead → injected environment context → anchored to Sydney Street, BN1 → direct tone.`). Fully backwards-compatible — the original `{caption, postcode, street}` callers keep working; `envMode`, `ovenStatus`, `tone` are optional.
+    - **The Pulse — tone pills + live SEO reasoning + image staging (`components/social-sync-card.tsx`).** Added three **Tone** pills (`Direct` / `Story` / `Offer`) between the IG preview and the editor — each re-runs `generateStrategy` with the chosen tone and swaps the draft in place; a `userEdited` flag prevents re-translation from stomping on owner edits (resets when the owner regenerates or re-picks a tone). New `envMode` + `ovenStatus` props flow into the strategy call, so changing the EnvironmentWedge or OvenStatusToggle now re-translates the post on the fly (e.g. rain + HOT → "Perfect for a rainy-day refuge"). A mono `Signal-to-SEO: …` footer fades in under the editor showing the exact four-step reasoning. A second mono hint surfaces when the IG image will auto-attach ("Image auto-staged for the Google post. 2× click-rate vs text-only."). PilotInfo copy upgraded from "social-to-search bridging" to "signal-to-seo bridging" with the new four-layer narrative. `onDeploy` signature extended to `(post, stagedImage?)` so the dashboard knows whether the image hitched a ride.
+    - **The Triangle — viral detection + tone-aware syndicate (`components/social-triangle-card.tsx`).** Refactored to consume `SocialSignal` directly via a small `toSignal(triangleSocial)` mapper. The freshest-platform ring is now driven by `calculateFreshnessLeader()` — the header sub-copy differentiates "freshest signal" vs "engagement winner" when the top two are tied on recency. `detectViral()` runs on every signal set; the first time a viral post appears (keyed by `platform · timestamp`, held in a `useRef<Set>` so toasts never re-fire on re-render) a priority toast ships with "Your TikTok is trending. Running 8× baseline. Deploying as a 'what's new' Google post while the signal is hot." The viral cell also swaps its green `fresh` ring for a **red `#FF4D4D` ring + 🔥 chip with the multiplier** (e.g. `🔥 8×`) so the owner can read the wave at a glance. Viral-sourced syndicate calls auto-upgrade to `tone: "direct"` to ride the wave without dilution; non-viral cells use the `defaultTone` prop (falls back to `direct`). `envMode` + `ovenStatus` + `defaultTone` are now first-class props — every generated Google post folds in live environment context. PilotInfo copy rewritten: "instagram is for aspiration, tiktok is for discovery, facebook is for community. google is for intent…".
+    - **Surgical Launch staging strip (`components/surgical-launch.tsx`).** The master CTA now accepts a `stagedImages: string[]` prop and renders a 36px circular thumbnail stack under its subtitle (max 3 images, ring-overlapped), with a `n images attached` caption. Dashboard passes every social `latestPost.image` through so the owner sees exactly what's shipping before they tap launch.
+    - **Dashboard rewiring (`components/dashboard.tsx`).** Dropped the re-mounting `key={${envMode}-${ovenStatus}}` on the SocialSyncCard (previously wiped owner edits on env changes — now unnecessary because the card reacts internally). `envMode` + `ovenStatus` passed to both SocialSyncCard and SocialTriangleCard. `pulsePost` now calls `generateStrategy` with env/oven so the fallback draft reflects the cockpit's current real-world pulse. `handleDeploy` extended to `(post, stagedImage?)` — the confirmation toast says "Post + image live on your Google profile" when the image hitched. `SurgicalLaunch` gets the image stack.
+    - **Why it matters for the demo:** the "Pulse" and "Triangle" used to show raw social content and call the output a "Google post" — they were *rehosting*, not *re-contextualising*. v1.5 turns the translation into a narratable pipeline the owner can see ("we stripped 3 social-only tokens, tilted to product intent, injected the rain signal, anchored to BN1"), adds a tone they can twist in real time (Direct / Story / Offer), and catches the single moment where social→SEO syndication matters most: a viral post's first 24h. That's the "Signal-to-SEO" arc: three noisy social channels → one clean Google surface, with a live reason for every character.
+
 - **v1.2.1 — Dev-overlay noise fix (sync-dynamic-apis):**
     - Next.js 16's dev indicator (`<nextjs-portal>`) was reporting a growing error count (1,943 and climbing) driven by `params are being enumerated. params is a Promise…` and `The keys of searchParams were accessed directly…` warnings every time the Cursor IDE element inspector mouseover-enumerated React page props. The proxies originated from Next.js 16's async dynamic APIs injected at the page boundary of our `"use client"` root page.
     - Refactored `app/page.tsx` into a thin **server-component wrapper** that consumes both proxies at the boundary (`await params; await searchParams`) before rendering the client dashboard. Moved the full cockpit implementation into `components/dashboard.tsx` (still `"use client"`, exports named `Dashboard`). When inspectors now walk the page props they walk resolved plain objects rather than the Promise proxy's `ownKeys` trap, so the warning stream stops.
@@ -361,8 +444,9 @@ Maintained chronologically; every feature drop below ships as a discrete atomic 
 
 ## 13. Backlog / candidate next drops
 
-- Business-type picker in onboarding so the Pilot scrapes any vertical (currently hardcoded `bakery`).
-- TikTok + Facebook engines alongside Instagram when SearchAPI adds coverage.
+- Business-type picker in onboarding so the Pilot scrapes any vertical (currently hardcoded `bakery`). The 4-layer strategy's intent-hook tables (`PRODUCT_HOOKS` / `EVENT_HOOKS` / `VIBE_HOOKS`) can be loaded per vertical.
+- Real per-handle viral baselines (currently a platform-wide heuristic in `detectViral()`): cache a 14-day rolling engagement average per handle so the 5× trigger reflects *this* business's normal, not the platform median.
+- Render the Triangle's Maps pin as an actual embedded mini-map (static image or interactive `leaflet`/`mapbox` tile) instead of the current coordinate-only summary.
 - Persist deployment history so the header counter isn't lost on refresh.
 - Real weather via `/api/environment` (Open-Meteo or similar) instead of the 3-scenario cycle.
 - Event calendar scrape for The Hijack (currently hardcoded Brighton Pride).

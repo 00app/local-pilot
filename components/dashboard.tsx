@@ -11,6 +11,11 @@ import { AuthorityLabCard } from "@/components/authority-lab-card"
 import { CompetitorRadarCard } from "@/components/competitor-radar-card"
 import { PilotStatusBar, type VitalitySignals } from "@/components/pilot-status-bar"
 import { SeoShaperCard, type TechnicalTweak } from "@/components/seo-shaper-card"
+import {
+  SocialTriangleCard,
+  type TriangleSocial,
+  type TriangleMapsPin,
+} from "@/components/social-triangle-card"
 import { OvenStatusToggle } from "@/components/oven-status-toggle"
 import { SurgicalLaunch } from "@/components/surgical-launch"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -39,6 +44,8 @@ interface OnboardingData {
   tiktok?: string
   facebook?: string
   competitors?: ScrapedCompetitor[]
+  socials?: TriangleSocial[]
+  mapsPin?: TriangleMapsPin
 }
 
 const FALLBACK_COMPETITORS: ScrapedCompetitor[] = [
@@ -117,12 +124,14 @@ export function Dashboard() {
 
   const bumpDeploys = useCallback(() => setDeployedCount((c) => c + 1), [])
 
-  const handleDeploy = (post: string) => {
-    console.log("Deployed post:", post)
+  const handleDeploy = (post: string, stagedImage?: string) => {
+    console.log("Deployed post:", post, stagedImage ? `(with image: ${stagedImage})` : "")
     bumpDeploys()
     fireConfetti("move")
     toast.success("Surgical move deployed.", {
-      description: "Post is live on your Google profile.",
+      description: stagedImage
+        ? "Post + image live on your Google profile."
+        : "Post is live on your Google profile.",
     })
   }
 
@@ -222,10 +231,15 @@ export function Dashboard() {
   const postcodeArea = postcode.split(" ")[0] || postcode
 
   // Pulse post: environment + oven first, fall back to IG-caption strategy.
+  // Passing envMode/ovenStatus into generateStrategy means the 4-layer
+  // pipeline folds environment context into the optimized output directly;
+  // we still prefer the wedge's hand-tuned override when it has one.
   const baseStrategy = generateStrategy({
     caption: "New sourdough out of the oven!",
     postcode,
     street: "Sydney Street",
+    envMode,
+    ovenStatus,
   })
   const envOverride = environmentPulseOverride(envMode, ovenStatus, postcodeArea)
   const pulsePost = envOverride ?? baseStrategy.optimized_post
@@ -325,13 +339,14 @@ export function Dashboard() {
             }}
           >
             <SocialSyncCard
-              key={`${envMode}-${ovenStatus}`}
               lastSync="24h"
               suggestedPost={pulsePost}
               onDeploy={handleDeploy}
               instagramHandle={onboardingData?.instagram || "flourpot"}
               postcode={postcode}
               street="Sydney Street"
+              envMode={envMode}
+              ovenStatus={ovenStatus}
             />
           </motion.div>
 
@@ -425,12 +440,32 @@ export function Dashboard() {
           </motion.div>
         </motion.div>
 
+        {/* Triangle Tier — cross-platform social + maps pin (Col 12) */}
+        <motion.div
+          className="mb-10"
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...springTransition, delay: 0.45 }}
+        >
+          <SocialTriangleCard
+            postcode={postcode}
+            street="Sydney Street"
+            instagramHandle={onboardingData?.instagram || "flourpot"}
+            tiktokHandle={onboardingData?.tiktok}
+            facebookPage={onboardingData?.facebook}
+            initialSocials={onboardingData?.socials || []}
+            initialMapsPin={onboardingData?.mapsPin}
+            envMode={envMode}
+            ovenStatus={ovenStatus}
+          />
+        </motion.div>
+
         {/* Intelligence Tier — SEO Shaper (Col 12) */}
         <motion.div
           className="mb-10"
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springTransition, delay: 0.5 }}
+          transition={{ ...springTransition, delay: 0.55 }}
         >
           <SeoShaperCard
             targetRank={1}
@@ -443,7 +478,13 @@ export function Dashboard() {
         </motion.div>
 
         {/* Master CTA — Surgical Launch (Col 12) */}
-        <SurgicalLaunch onLaunch={handleMasterLaunch} movesReady={3} />
+        <SurgicalLaunch
+          onLaunch={handleMasterLaunch}
+          movesReady={3}
+          stagedImages={(onboardingData?.socials || [])
+            .map((s) => s.latestPost?.image)
+            .filter((src): src is string => Boolean(src))}
+        />
 
         <div className="h-10" aria-hidden />
       </main>

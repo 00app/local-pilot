@@ -1,19 +1,22 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
-import { generateStrategy } from "@/lib/strategy"
+import { generateStrategy, type PostTone, type EnvMode, type OvenHeat } from "@/lib/strategy"
 import { PilotInfo, PILOT_TINT } from "@/components/pilot-info"
 
 interface SocialSyncCardProps {
   lastSync: string
   suggestedPost: string
-  onDeploy: (post: string) => void
+  onDeploy: (post: string, stagedImage?: string) => void
   // Optional: when provided, The Pulse pulls the latest IG post and translates its caption.
   instagramHandle?: string
   postcode?: string
   street?: string
+  envMode?: EnvMode
+  ovenStatus?: OvenHeat
 }
 
 interface InstagramLatest {
@@ -29,14 +32,20 @@ interface InstagramLatest {
   isLive: boolean
 }
 
+const TONES: Array<{ id: PostTone; label: string; hint: string }> = [
+  { id: "direct", label: "Direct", hint: "Available now on {street}." },
+  { id: "story", label: "Story", hint: "Our bakers started at 4am…" },
+  { id: "offer", label: "Offer", hint: "10% off today. Mention this post." },
+]
+
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
   const min = Math.max(1, Math.round(diff / 60000))
-  if (min < 60) return `${min}m ago`
+  if (min < 60) return `${min}m`
   const hr = Math.round(min / 60)
-  if (hr < 24) return `${hr}h ago`
+  if (hr < 24) return `${hr}h`
   const d = Math.round(hr / 24)
-  return `${d}d ago`
+  return `${d}d`
 }
 
 export function SocialSyncCard({
@@ -46,6 +55,8 @@ export function SocialSyncCard({
   instagramHandle,
   postcode,
   street = "Sydney Street",
+  envMode,
+  ovenStatus,
 }: SocialSyncCardProps) {
   const [postText, setPostText] = useState(suggestedPost)
   const [isEditing, setIsEditing] = useState(false)
@@ -53,6 +64,9 @@ export function SocialSyncCard({
   const [isDeploying, setIsDeploying] = useState(false)
   const [isDeployed, setIsDeployed] = useState(false)
   const [ig, setIg] = useState<InstagramLatest | null>(null)
+  const [tone, setTone] = useState<PostTone>("direct")
+  const [userEdited, setUserEdited] = useState(false)
+  const [lastReason, setLastReason] = useState<string | null>(null)
 
   // Fetch the latest IG post when a handle is provided.
   useEffect(() => {
@@ -67,51 +81,61 @@ export function SocialSyncCard({
       .then((data: InstagramLatest | null) => {
         if (cancelled || !data?.post) return
         setIg(data)
-        // Re-translate the live caption into a Local-SEO-anchored Google post.
-        if (postcode) {
-          const translated = generateStrategy({
-            caption: data.post.caption,
-            postcode,
-            street,
-          })
-          setPostText(translated.optimized_post)
-        }
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
-  }, [instagramHandle, postcode, street])
+  }, [instagramHandle])
+
+  // Re-translate whenever any strategy input changes (IG caption, tone, env,
+  // oven), but don't stomp on a caption the owner is actively editing.
+  useEffect(() => {
+    if (userEdited || isEditing) return
+    const caption = ig?.post?.caption
+    if (!caption || !postcode) return
+    const move = generateStrategy({
+      caption,
+      postcode,
+      street,
+      envMode,
+      ovenStatus,
+      tone,
+    })
+    setPostText(move.optimized_post)
+    setLastReason(move.surgical_reason)
+  }, [ig, postcode, street, envMode, ovenStatus, tone, userEdited, isEditing])
 
   const alternativePosts = useMemo(() => {
     if (ig?.post?.caption && postcode) {
-      // Regenerate variants from the real caption, with fresh hooks.
-      const variants = [
-        generateStrategy({ caption: ig.post.caption, postcode, street }).optimized_post,
-        generateStrategy({ caption: `fresh ${ig.post.caption}`, postcode, street }).optimized_post,
-        generateStrategy({ caption: `artisan ${ig.post.caption}`, postcode, street }).optimized_post,
+      // Different tone + keyword seed for each variant.
+      const base = { caption: ig.post.caption, postcode, street, envMode, ovenStatus }
+      return [
+        generateStrategy({ ...base, tone: "direct" }).optimized_post,
+        generateStrategy({ ...base, tone: "story" }).optimized_post,
+        generateStrategy({ ...base, tone: "offer" }).optimized_post,
       ]
-      return variants
     }
     return [
       "Fresh from the oven this morning. Come taste the difference in Brighton.",
       "Artisan bread made with love, ready for your table today.",
       "The smell of fresh sourdough is calling. Visit us on Sydney St.",
     ]
-  }, [ig, postcode, street])
+  }, [ig, postcode, street, envMode, ovenStatus])
 
   const handleRegenerate = async () => {
     setIsRegenerating(true)
     await new Promise((r) => setTimeout(r, 800))
     const randomPost = alternativePosts[Math.floor(Math.random() * alternativePosts.length)]
     setPostText(randomPost)
+    setUserEdited(false)
     setIsRegenerating(false)
   }
 
   const handleDeploy = async () => {
     setIsDeploying(true)
     await new Promise((r) => setTimeout(r, 1500))
-    onDeploy(postText)
+    onDeploy(postText, ig?.post?.image_url)
     setIsDeploying(false)
     setIsDeployed(true)
     setTimeout(() => setIsDeployed(false), 3000)
@@ -119,13 +143,16 @@ export function SocialSyncCard({
 
   const detectedLabel = ig?.post ? timeAgo(ig.post.posted_at) : lastSync
   const isLive = Boolean(ig?.isLive)
+  const stagedHint = ig?.post?.image_url
+    ? "Image auto-staged for the Google post. 2× click-rate vs text-only."
+    : null
 
   return (
     <div className="strategy-card card-mint h-full">
       <PilotInfo
         tint={PILOT_TINT.mint}
-        title="social-to-search bridging"
-        explanation="this module detects high-engagement social posts and mirrors them to google. search engines reward this consistency with a 'freshness' ranking boost."
+        title="signal-to-seo bridging"
+        explanation="instagram is for aspiration (pretty pictures); google is for intent (where is the bread?). we strip hashtags + emoji, tilt to product intent, inject the environment, and anchor the post to your postcode so google's map algorithm treats the content as local."
       />
       {/* Big Number */}
       <div className="mb-4">
@@ -177,6 +204,34 @@ export function SocialSyncCard({
         </div>
       )}
 
+      {/* Tone pills — Syndicate & Spin */}
+      <div className="mb-3 flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] font-mono uppercase tracking-[0.15em] opacity-60 shrink-0">
+          tone
+        </span>
+        {TONES.map((t) => {
+          const active = tone === t.id
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => {
+                setTone(t.id)
+                setUserEdited(false)
+              }}
+              title={t.hint}
+              className={`text-[11px] font-semibold px-3 py-1 rounded-full transition-all btn-squish ${
+                active
+                  ? "bg-[var(--card-fg)] text-[var(--card-bg)]"
+                  : "bg-white/40 hover:bg-white/60 opacity-80"
+              }`}
+            >
+              {t.label}
+            </button>
+          )
+        })}
+      </div>
+
       {/* Editable Post Area */}
       <div className="flex-1 min-h-0 flex flex-col">
         <div className="flex items-center justify-between mb-2">
@@ -203,10 +258,29 @@ export function SocialSyncCard({
         <textarea
           className="post-editor flex-1 resize-none"
           value={postText}
-          onChange={(e) => setPostText(e.target.value)}
+          onChange={(e) => {
+            setPostText(e.target.value)
+            setUserEdited(true)
+          }}
           readOnly={!isEditing}
           rows={3}
         />
+
+        {/* Signal-to-SEO reasoning footer */}
+        {lastReason && !userEdited && (
+          <motion.p
+            key={lastReason}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 0.75, y: 0 }}
+            transition={{ duration: 0.25 }}
+            className="mt-2 text-[10px] font-mono leading-snug"
+          >
+            {lastReason}
+          </motion.p>
+        )}
+        {stagedHint && (
+          <p className="mt-1 text-[10px] font-mono opacity-60">{stagedHint}</p>
+        )}
       </div>
 
       {/* Deploy Button */}

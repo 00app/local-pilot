@@ -1,0 +1,503 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* BrightLocal Brand - Light Theme */
+  --background: #ffffff;
+  --foreground: #111827;
+  --card: #f9fafb;
+  --card-foreground: #111827;
+  --popover: #ffffff;
+  --popover-foreground: #111827;
+  --primary: #111827;
+  --primary-foreground: #ffffff;
+  --secondary: #f3f4f6;
+  --secondary-foreground: #111827;
+  --muted: #f3f4f6;
+  --muted-foreground: #6b7280;
+  --accent: #2563EB;
+  --accent-foreground: #ffffff;
+  --destructive: #EF4444;
+  --destructive-foreground: #ffffff;
+  --border: transparent;
+  --input: #f3f4f6;
+  --ring: #2AE855;
+  --success: #22C55E;
+  --bl-green: #2AE855;
+  
+  /* Strategy Card Colors */
+  --pilot-mint: #86EFAC;
+  --pilot-mint-text: #064E3B;
+  --pilot-sky: #BAE6FD;
+  --pilot-sky-text: #0C4A6E;
+  --pilot-lemon: #FEF08A;
+  --pilot-lemon-text: #713F12;
+  --pilot-lavender: #E0E7FF;
+  --pilot-lavender-text: #312E81;
+  --pilot-coral: #FECACA;
+  --pilot-coral-text: #7F1D1D;
+  
+  /* Legacy aliases */
+  --pilot-blue: var(--pilot-sky);
+  --pilot-blue-text: var(--pilot-sky-text);
+  --pilot-yellow: var(--pilot-lemon);
+  --pilot-yellow-text: var(--pilot-lemon-text);
+
+  /* Brand Compiler Tokens */
+  --bl-mint: #86EFAC;
+  --bl-sky: #BAE6FD;
+  --bl-lemon: #FEF08A;
+  --bl-lavender: #E0E7FF;
+  --bl-coral: #FECACA;
+  --bl-grey: #F9FAFB;
+  --radius-surgical: 30px;
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Chrome surfaces — status bar, oven pill, subtle chips */
+  --surface-alt: #fafafa;
+  --surface-line: #f0f0f0;
+  --surface-chip: #f9fafb;
+  --surface-chip-border: #f0f0f0;
+  --hairline: #e5e7eb;
+  --stat-ink: #1a1a1a;
+
+  --radius: 8px;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #f9fafb;
+  --card: #111827;
+  --card-foreground: #f9fafb;
+  --popover: #111827;
+  --popover-foreground: #f9fafb;
+  --primary: #f9fafb;
+  --primary-foreground: #111827;
+  --secondary: #1f2937;
+  --secondary-foreground: #f9fafb;
+  --muted: #1f2937;
+  --muted-foreground: #9ca3af;
+  --accent: #2563EB;
+  --accent-foreground: #ffffff;
+  --destructive: #EF4444;
+  --destructive-foreground: #ffffff;
+  --border: transparent;
+  --input: #1f2937;
+  --ring: #2AE855;
+  --success: #22C55E;
+
+  --surface-alt: #0f1114;
+  --surface-line: #1f2937;
+  --surface-chip: #111827;
+  --surface-chip-border: #1f2937;
+  --hairline: #1f2937;
+  --stat-ink: #f9fafb;
+}
+
+@theme inline {
+  --font-sans: 'Inter', 'Inter Fallback', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'IBM Plex Mono Fallback', monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-transparent;
+  }
+  html {
+    /* Sticky two-strip header is ~128px. Keep in-page anchors + programmatic
+       scroll from landing underneath it. */
+    scroll-behavior: smooth;
+    scroll-padding-top: 8rem;
+    /* Prevent horizontal rubber-band / accidental overflow from widgets. */
+    overflow-x: hidden;
+  }
+  html,
+  body {
+    @apply bg-background text-foreground antialiased;
+    /* Overscroll bounce should stay the page colour in both themes and never
+       expose a stray white flash. */
+    overscroll-behavior-y: none;
+    min-height: 100%;
+  }
+  body {
+    /* Guarantee the main document is the scroll container, not some child. */
+    min-height: 100dvh;
+  }
+}
+
+@layer utilities {
+  /* Brand Compiler utility classes */
+  .text-data {
+    font-family: 'IBM Plex Mono', 'Roboto Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #666;
+  }
+
+  /* Button Press Effect */
+  .btn-squish {
+    transition: transform 0.15s var(--spring);
+  }
+  .btn-squish:active {
+    transform: scale(0.98);
+  }
+
+  /* Staggered Fade Animations */
+  .stagger-1 { animation: soft-fade 0.8s ease-out 0.1s forwards; opacity: 0; }
+  .stagger-2 { animation: soft-fade 0.8s ease-out 0.3s forwards; opacity: 0; }
+  .stagger-3 { animation: soft-fade 0.8s ease-out 0.5s forwards; opacity: 0; }
+  .stagger-4 { animation: soft-fade 0.8s ease-out 0.7s forwards; opacity: 0; }
+  .stagger-5 { animation: soft-fade 0.8s ease-out 0.9s forwards; opacity: 0; }
+
+  @keyframes soft-fade {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .logo-fade {
+    animation: logo-fade 1s ease-out forwards;
+  }
+  @keyframes logo-fade {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  .fade-up {
+    animation: soft-fade 0.6s ease-out forwards;
+  }
+
+  /* Scrape Animation */
+  .progress-fill {
+    animation: progress-fill 1.2s ease-in-out forwards;
+  }
+  @keyframes progress-fill {
+    from { width: 0%; }
+    to { width: 100%; }
+  }
+
+  .check-pop {
+    animation: check-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  }
+  @keyframes check-pop {
+    from { transform: scale(0); }
+    to { transform: scale(1); }
+  }
+
+  .celebration-glow {
+    animation: celebration-scale 0.5s ease-out forwards;
+  }
+  @keyframes celebration-scale {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+  }
+
+  /* Pilot Branding */
+  .pilot-crest {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+
+  /* Strategy Cards
+     Each card exposes --card-bg / --card-fg. Light mode: bright pastel fill +
+     deep-tint ink. Dark mode (`.dark`) swaps them so the card becomes the
+     deep-tint fill with the bright pastel as ink. Cards inside consume these
+     via `var(--card-bg)` / `var(--card-fg)` so buttons and accents auto-invert
+     across themes without per-component conditionals. */
+  .card-mint {
+    --card-bg: var(--pilot-mint);
+    --card-fg: var(--pilot-mint-text);
+    background-color: var(--card-bg);
+    color: var(--card-fg);
+  }
+  .card-sky,
+  .card-blue {
+    --card-bg: var(--pilot-sky);
+    --card-fg: var(--pilot-sky-text);
+    background-color: var(--card-bg);
+    color: var(--card-fg);
+  }
+  .card-lemon,
+  .card-yellow {
+    --card-bg: var(--pilot-lemon);
+    --card-fg: var(--pilot-lemon-text);
+    background-color: var(--card-bg);
+    color: var(--card-fg);
+  }
+  .card-lavender {
+    --card-bg: var(--pilot-lavender);
+    --card-fg: var(--pilot-lavender-text);
+    background-color: var(--card-bg);
+    color: var(--card-fg);
+  }
+  .card-coral {
+    --card-bg: var(--pilot-coral);
+    --card-fg: var(--pilot-coral-text);
+    background-color: var(--card-bg);
+    color: var(--card-fg);
+  }
+
+  /* Dark-mode flip: bg/fg swap. The bright pastel becomes the ink, the deep
+     tint becomes the surface. Preserves the clinical hue language while
+     reading naturally against the dark chrome. */
+  .dark .card-mint {
+    --card-bg: var(--pilot-mint-text);
+    --card-fg: var(--pilot-mint);
+  }
+  .dark .card-sky,
+  .dark .card-blue {
+    --card-bg: var(--pilot-sky-text);
+    --card-fg: var(--pilot-sky);
+  }
+  .dark .card-lemon,
+  .dark .card-yellow {
+    --card-bg: var(--pilot-lemon-text);
+    --card-fg: var(--pilot-lemon);
+  }
+  .dark .card-lavender {
+    --card-bg: var(--pilot-lavender-text);
+    --card-fg: var(--pilot-lavender);
+  }
+  .dark .card-coral {
+    --card-bg: var(--pilot-coral-text);
+    --card-fg: var(--pilot-coral);
+  }
+
+  /* White frosted inlays (bg-white/30..70) inside strategy cards sit fine on
+     bright pastels in light mode, but on the deep-tint dark-mode fills they
+     wash out ink legibility. Dim + tint them once here so every widget stays
+     legible without per-file dark variants on every inlay. */
+  .dark .strategy-card [class*="bg-white/"],
+  .dark .strategy-card-wide [class*="bg-white/"] {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+  .dark .strategy-card [class*="hover\\:bg-white/"]:hover,
+  .dark .strategy-card-wide [class*="hover\\:bg-white/"]:hover {
+    background-color: rgba(255, 255, 255, 0.18);
+  }
+
+  .strategy-card {
+    position: relative;
+    border-radius: 24px;
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    min-height: 440px;
+    overflow: hidden;
+  }
+
+  .strategy-card-wide {
+    position: relative;
+    border-radius: 24px;
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    min-height: 440px;
+    overflow: hidden;
+  }
+
+  /* Section label at top of every widget */
+  .widget-index {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    font-weight: 600;
+    opacity: 0.65;
+    text-transform: uppercase;
+  }
+
+  .pilot-label {
+    font-size: 14px;
+    font-weight: 500;
+    opacity: 0.8;
+    margin-top: 8px;
+  }
+
+  /* Status Bar */
+  .status-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    background: var(--surface-alt);
+    border: 1px solid var(--surface-line);
+    border-radius: 20px;
+    padding: 4px;
+    margin-bottom: 32px;
+  }
+  .status-cell {
+    padding: 20px 24px;
+    border-right: 1px solid var(--surface-line);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .status-cell:last-child {
+    border-right: none;
+  }
+  .status-cell-value {
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: -1.5px;
+    line-height: 1;
+    color: var(--foreground);
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .status-cell-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    font-weight: 600;
+  }
+  .status-pulse-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background: var(--bl-green);
+    box-shadow: 0 0 0 0 rgba(42, 232, 85, 0.6);
+    animation: pulse-dot 2s infinite;
+    display: inline-block;
+  }
+  @keyframes pulse-dot {
+    0% { box-shadow: 0 0 0 0 rgba(42, 232, 85, 0.55); }
+    70% { box-shadow: 0 0 0 10px rgba(42, 232, 85, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(42, 232, 85, 0); }
+  }
+
+  /* Editor field variant — wide cards get a more generous field (spec: 18px / sentence case) */
+  .editor-field {
+    background: rgba(255, 255, 255, 0.5);
+    border: none;
+    border-radius: 16px;
+    padding: 20px;
+    font-size: 18px;
+    line-height: 1.55;
+    text-transform: none;
+    color: inherit;
+    outline: none;
+    resize: none;
+    width: 100%;
+    transition: background 200ms ease;
+    font-family: inherit;
+  }
+  .editor-field:focus {
+    background: rgba(255, 255, 255, 0.85);
+  }
+  .editor-field:read-only {
+    cursor: default;
+  }
+  /* In dark mode the card fill is already the deep-tint, so a white frosted
+     field would scream. Drop to a black frosted inlay and inherit the card's
+     bright pastel ink. */
+  .dark .editor-field {
+    background: rgba(0, 0, 0, 0.22);
+  }
+  .dark .editor-field:focus {
+    background: rgba(0, 0, 0, 0.35);
+  }
+
+  /* Clinical Typography */
+  .stat-number {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 110px;
+    font-weight: 800;
+    line-height: 0.85;
+    letter-spacing: -5px;
+  }
+
+  .stat-massive {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 110px;
+    font-weight: 800;
+    line-height: 0.85;
+    letter-spacing: -5px;
+    /* Inherits card colour token (card-mint/coral/etc) so pastel cards keep
+       their deep tinted ink in both light and dark themes. */
+    color: inherit;
+  }
+
+  /* Post Editor */
+  .post-editor {
+    background: rgba(255, 255, 255, 0.6);
+    border-radius: 12px;
+    padding: 12px;
+    font-size: 15px;
+    line-height: 1.5;
+    color: inherit;
+    margin-top: 8px;
+    min-height: 80px;
+    max-height: 120px;
+    outline: none;
+    transition: background 200ms ease;
+    resize: none;
+    width: 100%;
+    font-family: inherit;
+    overflow-y: auto;
+  }
+  .post-editor:focus {
+    background: rgba(42, 232, 85, 0.15);
+  }
+  .post-editor:read-only {
+    cursor: default;
+  }
+  .dark .post-editor {
+    background: rgba(0, 0, 0, 0.25);
+  }
+  .dark .post-editor:focus {
+    background: rgba(42, 232, 85, 0.2);
+  }
+
+  /* Responsive */
+  @media (max-width: 1280px) {
+    .stat-number {
+      font-size: 80px;
+      letter-spacing: -3px;
+    }
+    .stat-massive {
+      font-size: 96px;
+      letter-spacing: -4px;
+    }
+    .status-cell-value {
+      font-size: 28px;
+    }
+  }
+  @media (max-width: 900px) {
+    .status-bar {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .status-cell {
+      border-right: none;
+      border-bottom: 1px solid var(--surface-line);
+    }
+  }
+}

@@ -1,0 +1,240 @@
+"use client"
+
+import { useEffect, useMemo, useState } from "react"
+import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
+import { generateStrategy } from "@/lib/strategy"
+import { PilotInfo, PILOT_TINT } from "@/components/pilot-info"
+
+interface SocialSyncCardProps {
+  lastSync: string
+  suggestedPost: string
+  onDeploy: (post: string) => void
+  // Optional: when provided, The Pulse pulls the latest IG post and translates its caption.
+  instagramHandle?: string
+  postcode?: string
+  street?: string
+}
+
+interface InstagramLatest {
+  username: string
+  full_name?: string
+  post: {
+    image_url: string
+    caption: string
+    likes: number
+    comments: number
+    posted_at: string
+  } | null
+  isLive: boolean
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const min = Math.max(1, Math.round(diff / 60000))
+  if (min < 60) return `${min}m ago`
+  const hr = Math.round(min / 60)
+  if (hr < 24) return `${hr}h ago`
+  const d = Math.round(hr / 24)
+  return `${d}d ago`
+}
+
+export function SocialSyncCard({
+  lastSync,
+  suggestedPost,
+  onDeploy,
+  instagramHandle,
+  postcode,
+  street = "Sydney Street",
+}: SocialSyncCardProps) {
+  const [postText, setPostText] = useState(suggestedPost)
+  const [isEditing, setIsEditing] = useState(false)
+  const [isRegenerating, setIsRegenerating] = useState(false)
+  const [isDeploying, setIsDeploying] = useState(false)
+  const [isDeployed, setIsDeployed] = useState(false)
+  const [ig, setIg] = useState<InstagramLatest | null>(null)
+
+  // Fetch the latest IG post when a handle is provided.
+  useEffect(() => {
+    if (!instagramHandle) return
+    let cancelled = false
+    fetch("/api/instagram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: instagramHandle }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: InstagramLatest | null) => {
+        if (cancelled || !data?.post) return
+        setIg(data)
+        // Re-translate the live caption into a Local-SEO-anchored Google post.
+        if (postcode) {
+          const translated = generateStrategy({
+            caption: data.post.caption,
+            postcode,
+            street,
+          })
+          setPostText(translated.optimized_post)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [instagramHandle, postcode, street])
+
+  const alternativePosts = useMemo(() => {
+    if (ig?.post?.caption && postcode) {
+      // Regenerate variants from the real caption, with fresh hooks.
+      const variants = [
+        generateStrategy({ caption: ig.post.caption, postcode, street }).optimized_post,
+        generateStrategy({ caption: `fresh ${ig.post.caption}`, postcode, street }).optimized_post,
+        generateStrategy({ caption: `artisan ${ig.post.caption}`, postcode, street }).optimized_post,
+      ]
+      return variants
+    }
+    return [
+      "Fresh from the oven this morning. Come taste the difference in Brighton.",
+      "Artisan bread made with love, ready for your table today.",
+      "The smell of fresh sourdough is calling. Visit us on Sydney St.",
+    ]
+  }, [ig, postcode, street])
+
+  const handleRegenerate = async () => {
+    setIsRegenerating(true)
+    await new Promise((r) => setTimeout(r, 800))
+    const randomPost = alternativePosts[Math.floor(Math.random() * alternativePosts.length)]
+    setPostText(randomPost)
+    setIsRegenerating(false)
+  }
+
+  const handleDeploy = async () => {
+    setIsDeploying(true)
+    await new Promise((r) => setTimeout(r, 1500))
+    onDeploy(postText)
+    setIsDeploying(false)
+    setIsDeployed(true)
+    setTimeout(() => setIsDeployed(false), 3000)
+  }
+
+  const detectedLabel = ig?.post ? timeAgo(ig.post.posted_at) : lastSync
+  const isLive = Boolean(ig?.isLive)
+
+  return (
+    <div className="strategy-card card-mint h-full">
+      <PilotInfo
+        tint={PILOT_TINT.mint}
+        title="social-to-search bridging"
+        explanation="this module detects high-engagement social posts and mirrors them to google. search engines reward this consistency with a 'freshness' ranking boost."
+      />
+      {/* Big Number */}
+      <div className="mb-4">
+        <p className="stat-number">{detectedLabel}</p>
+        <p className="pilot-label">
+          {ig?.post ? "since latest instagram post." : "since last sync."}
+        </p>
+      </div>
+
+      {/* Strategy Label */}
+      <div className="mb-4">
+        <p className="widget-index mb-2">02 · The pulse</p>
+        <h3 className="text-xl font-bold">Social sync.</h3>
+        <p className="text-sm opacity-80 mt-1 line-clamp-2">
+          Translates Instagram activity into Google posts.
+        </p>
+      </div>
+
+      {/* 1:1 Instagram preview (only when we have a post) */}
+      {ig?.post && (
+        <div className="mb-3 flex items-start gap-3 rounded-[16px] bg-white/40 p-2.5">
+          <div className="w-16 h-16 rounded-[12px] overflow-hidden shrink-0 bg-black/5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={ig.post.image_url}
+              alt={`@${ig.username} latest post`}
+              className="w-full h-full object-cover"
+            />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2 mb-0.5">
+              <p className="text-xs font-semibold truncate">@{ig.username}</p>
+              <span
+                className={`text-[9px] font-mono uppercase tracking-[0.15em] px-1.5 py-0.5 rounded-full shrink-0 ${
+                  isLive ? "bg-[#2AE855] text-black font-semibold" : "bg-white/70 opacity-70"
+                }`}
+                title={isLive ? "Live Instagram via SearchAPI.io" : "Demo — set SEARCHAPI_API_KEY"}
+              >
+                {isLive ? "live" : "demo"}
+              </span>
+            </div>
+            <p className="text-xs opacity-80 line-clamp-2 leading-snug">
+              &quot;{ig.post.caption}&quot;
+            </p>
+            <p className="text-[10px] font-mono opacity-60 mt-1">
+              ♥ {ig.post.likes.toLocaleString()} · 💬 {ig.post.comments.toLocaleString()}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Editable Post Area */}
+      <div className="flex-1 min-h-0 flex flex-col">
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-sm font-medium opacity-70">
+            {isEditing ? "Editing post:" : "Translated post:"}
+          </label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setIsEditing(!isEditing)}
+              className="text-xs font-medium px-2 py-1 rounded-lg bg-white/30 hover:bg-white/50 transition-colors"
+            >
+              {isEditing ? "Done" : "Edit"}
+            </button>
+            <button
+              onClick={handleRegenerate}
+              disabled={isRegenerating}
+              className="text-xs font-medium px-2 py-1 rounded-lg bg-white/30 hover:bg-white/50 transition-colors flex items-center gap-1"
+            >
+              {isRegenerating && <Spinner className="w-3 h-3" />}
+              Regenerate
+            </button>
+          </div>
+        </div>
+        <textarea
+          className="post-editor flex-1 resize-none"
+          value={postText}
+          onChange={(e) => setPostText(e.target.value)}
+          readOnly={!isEditing}
+          rows={3}
+        />
+      </div>
+
+      {/* Deploy Button */}
+      <Button
+        onClick={handleDeploy}
+        disabled={isDeploying || isDeployed}
+        className={`mt-4 h-12 w-full rounded-full font-semibold btn-squish transition-all ${
+          isDeployed
+            ? "bg-[#2AE855] text-black"
+            : "bg-[var(--card-fg)] text-[var(--card-bg)] hover:brightness-110"
+        }`}
+      >
+        {isDeploying ? (
+          <span className="flex items-center gap-2">
+            <Spinner className="w-4 h-4" />
+            Deploying...
+          </span>
+        ) : isDeployed ? (
+          <span className="flex items-center gap-2">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            Deployed to Google
+          </span>
+        ) : (
+          "Deploy to Google"
+        )}
+      </Button>
+    </div>
+  )
+}

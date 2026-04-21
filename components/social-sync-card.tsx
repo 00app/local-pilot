@@ -66,6 +66,16 @@ export function SocialSyncCard({
   const [tone, setTone] = useState<PostTone>("direct")
   const [userEdited, setUserEdited] = useState(false)
 
+  // Sync `suggestedPost` when the parent recomputes it (e.g. after async
+  // socials/businessMeta arrive and the dashboard's strategy pipeline
+  // generates a fresher pulse). Don't stomp on in-flight edits or on the
+  // IG-driven translation below.
+  useEffect(() => {
+    if (userEdited || isEditing) return
+    if (ig?.post?.caption) return
+    setPostText(suggestedPost)
+  }, [suggestedPost, userEdited, isEditing, ig])
+
   // Fetch the latest IG post when a handle is provided.
   useEffect(() => {
     if (!instagramHandle) return

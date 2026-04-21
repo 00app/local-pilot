@@ -95,6 +95,11 @@ interface SocialTriangleCardProps {
   envMode?: EnvMode
   ovenStatus?: OvenHeat
   defaultTone?: PostTone
+  /**
+   * Maps `q` query string — replaces the legacy hardcoded `bakery <postcode>`
+   * seed so rescan surfaces the correct vertical for any business.
+   */
+  businessQuery?: string
 }
 
 const PLATFORM_META: Record<
@@ -135,7 +140,7 @@ const PLATFORM_META: Record<
 
 export function SocialTriangleCard({
   postcode,
-  street = "Sydney Street",
+  street = "your street",
   instagramHandle,
   tiktokHandle,
   facebookPage,
@@ -144,6 +149,7 @@ export function SocialTriangleCard({
   envMode,
   ovenStatus,
   defaultTone = "direct",
+  businessQuery,
 }: SocialTriangleCardProps) {
   const [socials, setSocials] = useState<TriangleSocial[]>(initialSocials)
   const [mapsPin, setMapsPin] = useState<TriangleMapsPin | undefined>(initialMapsPin)
@@ -168,7 +174,7 @@ export function SocialTriangleCard({
 
     const mapsPromise = fetchJSON<TriangleMapsPin>("/api/maps", {
       postcode,
-      q: `bakery ${postcode}`,
+      q: businessQuery || postcode,
     })
 
     const [socialResults, mapsResult] = await Promise.all([
@@ -178,7 +184,7 @@ export function SocialTriangleCard({
     setSocials(socialResults.filter((s): s is TriangleSocial => s !== null))
     if (mapsResult) setMapsPin(mapsResult)
     setLoading(false)
-  }, [instagramHandle, tiktokHandle, facebookPage, postcode])
+  }, [instagramHandle, tiktokHandle, facebookPage, postcode, businessQuery])
 
   // Only rescan on mount if we weren't handed initial snapshots.
   useEffect(() => {

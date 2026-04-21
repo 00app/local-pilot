@@ -42,6 +42,15 @@ export interface MapsPinPayload {
   lng?: number
   topResultName?: string
   topResultAddress?: string
+  /**
+   * Google's category label for the top result (e.g. "Bakery", "Coffee shop",
+   * "Italian restaurant"). Drives downstream business-type inference so the
+   * cockpit stops hardcoding `bakery` in scrape queries.
+   */
+  topResultType?: string
+  topResultPlaceId?: string
+  topResultRating?: number
+  topResultReviews?: number
   nearbyCount: number
   isLive: boolean
 }
@@ -114,6 +123,10 @@ async function respond({ q, postcode, ll, location }: RespondArgs) {
       lng: top?.gps_coordinates?.longitude ?? top?.longitude,
       topResultName: top?.title || top?.name,
       topResultAddress: top?.address,
+      topResultType: top?.type,
+      topResultPlaceId: top?.place_id || top?.data_id,
+      topResultRating: top?.rating,
+      topResultReviews: top?.reviews,
       nearbyCount: local.length,
       isLive: true,
     }
@@ -134,6 +147,9 @@ function mockPin(q: string, postcode?: string): MapsPinPayload {
     topResultAddress: isBrighton
       ? "Sydney Street, Brighton BN1 4EN"
       : `${postcode || "London"}`,
+    topResultType: "Bakery",
+    topResultRating: 4.7,
+    topResultReviews: 312,
     nearbyCount: 7,
     isLive: false,
   }

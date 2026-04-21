@@ -24,8 +24,10 @@ interface RivalReview {
 
 interface CompetitorRadarCardProps {
   postcode: string
-  rank: number
-  totalRivals: number
+  /** `null` when the owner isn't in the scraped local pack yet. */
+  rank: number | null
+  /** `null` when the scrape hasn't returned rivals yet. */
+  totalRivals: number | null
   rivals: Competitor[]
   businessType?: string
   onScan?: (nextRivals: Competitor[], isLive: boolean) => void
@@ -36,12 +38,15 @@ export function CompetitorRadarCard({
   rank,
   totalRivals,
   rivals,
-  businessType = "bakery",
+  businessType = "local business",
   onScan,
 }: CompetitorRadarCardProps) {
   const [isScanning, setIsScanning] = useState(false)
   const [scannedAt, setScannedAt] = useState<Date | null>(new Date())
   const [liveRivals, setLiveRivals] = useState<Competitor[]>(rivals)
+  // Trust the API's `isLive` flag directly instead of inferring from
+  // `totalFound > 5` — the mock fallback happens to return exactly 5 rows
+  // so the old heuristic stamped every demo session as "live".
   const [isLive, setIsLive] = useState(false)
 
   // Per-rival review expansion state. `expandedRival` holds the name of the
@@ -73,10 +78,19 @@ export function CompetitorRadarCard({
         body: JSON.stringify({ postcode, businessType }),
       })
       if (!res.ok) throw new Error(`scrape ${res.status}`)
-      const data: { competitors: Competitor[]; totalFound: number } = await res.json()
+      const data: {
+        competitors: Competitor[]
+        totalFound: number
+        isLive?: boolean
+      } = await res.json()
 
       const next = data.competitors?.length ? data.competitors : liveRivals
-      const nowLive = (data.totalFound ?? next.length) > 5
+      // Use the route's explicit flag; only fall back to the heuristic for
+      // older cached responses that don't include `isLive`.
+      const nowLive =
+        typeof data.isLive === "boolean"
+          ? data.isLive
+          : (data.totalFound ?? next.length) > 5
       setLiveRivals(next)
       setIsLive(nowLive)
       setScannedAt(new Date())
@@ -134,10 +148,16 @@ export function CompetitorRadarCard({
       <div className="flex items-start justify-between gap-8 mb-6">
         <div>
           <p className="stat-massive">
-            #{rank}
-            <span className="text-4xl font-bold opacity-60 ml-2">/ {totalRivals}</span>
+            {rank !== null ? `#${rank}` : "—"}
+            <span className="text-4xl font-bold opacity-60 ml-2">
+              / {totalRivals ?? "—"}
+            </span>
           </p>
-          <p className="pilot-label">your rank in {postcode.split(" ")[0] || postcode}.</p>
+          <p className="pilot-label">
+            {rank !== null
+              ? `your rank in ${postcode.split(" ")[0] || postcode}.`
+              : `resolving rank in ${postcode.split(" ")[0] || postcode}...`}
+          </p>
         </div>
 
         {/* Strategy Label — pr-8 reserves clearance for the absolute info icon */}
@@ -145,7 +165,9 @@ export function CompetitorRadarCard({
           <p className="widget-index mb-2">06 · The battle</p>
           <h3 className="text-xl font-bold">Competitor radar.</h3>
           <p className="text-sm opacity-80 mt-1">
-            {totalRivals} rivals tracked in {postcode}.
+            {totalRivals !== null && totalRivals > 0
+              ? `${totalRivals} rivals tracked in ${postcode}.`
+              : `Scanning rivals in ${postcode}...`}
           </p>
         </div>
       </div>

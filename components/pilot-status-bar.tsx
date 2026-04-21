@@ -1,6 +1,13 @@
 "use client"
 
-export type VitalityLevel = "fresh" | "active" | "high" | "stale" | "low"
+export type VitalityLevel =
+  | "fresh"
+  | "active"
+  | "high"
+  | "warm"
+  | "medium"
+  | "stale"
+  | "low"
 
 export interface VitalitySignals {
   social_pulse: VitalityLevel
@@ -10,8 +17,10 @@ export interface VitalitySignals {
 
 interface PilotStatusBarProps {
   freshness: number
-  rank: number
-  totalRivals: number
+  /** `null` when the owner's rank isn't in the scraped local pack yet. */
+  rank: number | null
+  /** `null` when the scrape hasn't returned rivals yet. */
+  totalRivals: number | null
   postcode: string
   lastSync: string
   activeEvents: number
@@ -22,6 +31,8 @@ const LEVEL_DOT: Record<VitalityLevel, string> = {
   fresh: "bg-[#2AE855]",
   active: "bg-[#2AE855]",
   high: "bg-[#2AE855]",
+  warm: "bg-amber-400",
+  medium: "bg-amber-400",
   stale: "bg-amber-500 animate-pulse",
   low: "bg-amber-400",
 }
@@ -30,6 +41,8 @@ const LEVEL_TEXT: Record<VitalityLevel, string> = {
   fresh: "text-emerald-600 dark:text-emerald-400",
   active: "text-emerald-600 dark:text-emerald-400",
   high: "text-emerald-600 dark:text-emerald-400",
+  warm: "text-amber-600 dark:text-amber-300",
+  medium: "text-amber-600 dark:text-amber-300",
   stale: "text-amber-600 dark:text-amber-400",
   low: "text-amber-500 dark:text-amber-300",
 }
@@ -74,12 +87,16 @@ export function PilotStatusBar({
       <div className="status-cell">
         <p className="status-cell-label">Postcode rank</p>
         <p className="status-cell-value">
-          #{rank}
+          {rank !== null ? `#${rank}` : "—"}
           <span className="text-base font-semibold text-muted-foreground ml-1">
-            / {totalRivals}
+            / {totalRivals ?? "—"}
           </span>
         </p>
-        <p className="text-xs text-muted-foreground">live in {postcode}.</p>
+        <p className="text-xs text-muted-foreground">
+          {rank !== null
+            ? `live in ${postcode}.`
+            : `resolving rank in ${postcode}...`}
+        </p>
       </div>
 
       <div className="status-cell">

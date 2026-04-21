@@ -72,15 +72,29 @@ interface EnvironmentWedgeProps {
   mode: EnvironmentMode
   onCycle: () => void
   ovenStatus?: OvenStatus
+  /** Short postcode area (e.g. `BN1`) — anchors the compound line. */
+  postcodeArea?: string
+  /** Live street from the business's Maps address — replaces "Sydney St". */
+  street?: string
 }
 
-export function EnvironmentWedge({ mode, onCycle, ovenStatus }: EnvironmentWedgeProps) {
+export function EnvironmentWedge({
+  mode,
+  onCycle,
+  ovenStatus,
+  postcodeArea,
+  street,
+}: EnvironmentWedgeProps) {
   const s = SCENARIOS[mode]
 
-  // Mic-drop: Hot oven + Rain = compound suggestion
+  // Mic-drop: Hot oven + Rain = compound suggestion, anchored to the live
+  // street + area when we have them (falls back to the Sydney St seed copy
+  // when the cockpit is still pre-onboarding or /api/business didn't
+  // resolve the pin).
+  const streetLabel = street && street !== "your street" ? street.toLowerCase() : "sydney st."
   const compound =
     ovenStatus === "HOT" && mode === "rain"
-      ? "warm bread and a dry seat. the perfect rain-refuge on sydney st."
+      ? `warm bread and a dry seat. the perfect rain-refuge on ${streetLabel}${postcodeArea ? `, ${postcodeArea.toLowerCase()}` : ""}.`
       : null
 
   return (

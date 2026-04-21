@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { PilotInfo, PILOT_TINT } from "@/components/pilot-info"
@@ -22,6 +22,15 @@ export function ReviewBoosterCard({ rating, latestReview, suggestedResponse, onP
   const [isRegenerating, setIsRegenerating] = useState(false)
   const [isPublishing, setIsPublishing] = useState(false)
   const [isPublished, setIsPublished] = useState(false)
+
+  // Pull in an updated `suggestedResponse` when the parent swaps in a live
+  // response draft (e.g. after `/api/business` resolves the owner's actual
+  // latest Google review). We only sync while the owner isn't actively
+  // editing, so in-flight edits are never clobbered.
+  useEffect(() => {
+    if (isEditing) return
+    setResponseText(suggestedResponse)
+  }, [suggestedResponse, isEditing])
 
   const alternativeResponses = [
     `Thanks so much, ${latestReview.author}! We're delighted you enjoyed it. See you again soon!`,

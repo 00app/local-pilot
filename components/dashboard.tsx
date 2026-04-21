@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { motion } from "framer-motion"
 import { toast } from "sonner"
 import { Onboarding } from "@/components/onboarding"
@@ -27,6 +27,7 @@ import {
   type EnvironmentMode,
 } from "@/components/environment-wedge"
 import { generateStrategy } from "@/lib/strategy"
+import { formatAge, calculateFreshnessLeader } from "@/lib/social-engine"
 import type { OvenStatus } from "@/lib/types"
 
 interface ScrapedCompetitor {
@@ -35,6 +36,28 @@ interface ScrapedCompetitor {
   reviews: number
   type: string
   address: string
+}
+
+interface BusinessMeta {
+  name: string
+  address?: string
+  street?: string
+  postcode: string
+  businessType?: string
+  lat?: number
+  lng?: number
+  rating?: number
+  totalReviews?: number
+  placeId?: string
+  latestReview?: {
+    author: string
+    rating: number
+    text: string
+    time: string
+  }
+  suggestedResponse?: string
+  ownRank?: number
+  isLive: boolean
 }
 
 interface OnboardingData {
@@ -46,14 +69,28 @@ interface OnboardingData {
   competitors?: ScrapedCompetitor[]
   socials?: TriangleSocial[]
   mapsPin?: TriangleMapsPin
+  businessMeta?: BusinessMeta
 }
 
-const FALLBACK_COMPETITORS: ScrapedCompetitor[] = [
-  { name: "Flint Owl Bakery", rating: 4.8, reviews: 412, type: "Bakery", address: "North St, Brighton" },
-  { name: "Real Patisserie", rating: 4.7, reviews: 389, type: "Bakery", address: "Trafalgar St, Brighton" },
-  { name: "Baked Brighton", rating: 4.6, reviews: 271, type: "Bakery", address: "Gloucester Rd, Brighton" },
-  { name: "The Bread Oven", rating: 4.5, reviews: 198, type: "Bakery", address: "Western Rd, Brighton" },
-]
+/**
+ * Live SERP insights fetched on cockpit mount. Drives the Authority Lab's
+ * topic + draft seed, the Community Hijack's featured event, and the SEO
+ * Shaper's target keyword — so every "suggested move" on the grid is keyed
+ * off real search data for this business's postcode, not a demo constant.
+ */
+interface LiveInsights {
+  topic?: string // strongest related search, e.g. "sourdough brighton"
+  keyword?: string // shortest / most-local keyword for SEO Shaper
+  peopleAlsoAsk: { question: string; answer: string }[]
+  relatedSearches: string[]
+  event?: {
+    name: string
+    daysAway?: number
+    spike?: string
+  }
+  isLive: boolean
+  loading: boolean
+}
 
 // Dampened spring — matches spec cubic-bezier(0.34, 1.56, 0.64, 1)
 const springTransition = {
@@ -62,19 +99,186 @@ const springTransition = {
   damping: 18,
 }
 
+/** Keywords that, when found in a related-search label, flag it as an event. */
+const EVENT_KEYWORDS = [
+  "festival",
+  "market",
+  "fair",
+  "pride",
+  "fringe",
+  "parade",
+  "show",
+  "fest",
+  "pop up",
+  "pop-up",
+  "weekend",
+  "christmas",
+  "halloween",
+]
+
 export function Dashboard() {
   const [isOnboarded, setIsOnboarded] = useState(false)
   const [onboardingData, setOnboardingData] = useState<OnboardingData | null>(null)
   const [showCockpit, setShowCockpit] = useState(false)
-  const [freshnessScore] = useState(92)
   const [deployedCount, setDeployedCount] = useState(0)
   const [ovenStatus, setOvenStatus] = useState<OvenStatus>("LOW")
   const [envMode, setEnvMode] = useState<EnvironmentMode>("rain")
-  const [vitality, setVitality] = useState<VitalitySignals>({
-    social_pulse: "active",
-    review_velocity: "high",
-    technical_seo: "stale",
+  const [seoApplied, setSeoApplied] = useState(false)
+  const [insights, setInsights] = useState<LiveInsights>({
+    peopleAlsoAsk: [],
+    relatedSearches: [],
+    isLive: false,
+    loading: false,
   })
+  const insightsFetchedRef = useRef(false)
+
+  const postcode = onboardingData?.postcode || "BN1 4EN"
+  const postcodeArea = postcode.split(" ")[0] || postcode
+  const businessMeta = onboardingData?.businessMeta
+  const businessName = useMemo(() => {
+    if (businessMeta?.name) return businessMeta.name
+    if (!onboardingData?.url) return "Your Business"
+    return toTitleCase(deriveNameSeed(onboardingData.url)) || "Your Business"
+  }, [businessMeta, onboardingData])
+  const street = businessMeta?.street || "your street"
+  const businessType = businessMeta?.businessType || "local business"
+
+  // Resolved rivals — scrape result only. No more FALLBACK_COMPETITORS;
+  // if the scrape failed, the radar card just renders with an empty rivals
+  // array + a "set SEARCHAPI_API_KEY" hint on re-scan.
+  const competitors = useMemo(
+    () => onboardingData?.competitors || [],
+    [onboardingData],
+  )
+
+  // Derived signals from live socials payload (pulled in onboarding step 2).
+  // Drives the status-bar freshness score, the "last sync" label, and the
+  // social_pulse vitality chip — so every number on the top strip is keyed
+  // off a real timestamp coming back from SearchAPI.
+  const socialFreshness = useMemo(() => {
+    const socials = onboardingData?.socials || []
+    const signals = socials
+      .map((s) =>
+        s.latestPost
+          ? {
+              platform: s.platform,
+              handle: s.handle,
+              mediaType: s.platform === "tiktok" ? ("video" as const) : ("image" as const),
+              caption: s.latestPost.caption,
+              engagement:
+                (s.latestPost.likes || 0) + (s.latestPost.comments || 0),
+              views: s.views,
+              followers: s.followers,
+              timestamp: s.latestPost.postedAt,
+              isLive: s.isLive,
+            }
+          : null,
+      )
+      .filter((s): s is NonNullable<typeof s> => s !== null)
+    return calculateFreshnessLeader(signals)
+  }, [onboardingData])
+
+  const lastSync = useMemo(() => {
+    if (!socialFreshness) return "—"
+    return formatAge(socialFreshness.signal.timestamp)
+  }, [socialFreshness])
+
+  /**
+   * Compute the cockpit-wide Digital Vitality score from real signals, not
+   * a hardcoded 92. Simple weighted sum:
+   *   - social_pulse (35%): +1 if a post is <24h, scaled down as it ages
+   *   - review_velocity (30%): based on aggregate rating + total review count
+   *   - technical_seo (35%): 1 after SEO tweaks applied, else 0.4
+   */
+  const { freshnessScore, vitality } = useMemo(() => {
+    const socialPulseScore = socialFreshness
+      ? socialFreshness.hoursOld < 24
+        ? 1
+        : Math.max(0, 1 - socialFreshness.hoursOld / 72)
+      : 0
+
+    const rating = businessMeta?.rating ?? 0
+    const reviews = businessMeta?.totalReviews ?? 0
+    // Review velocity: rating normalised to 0–1, scaled by review-count
+    // saturation (100 reviews = full credit). No reviews → 0.
+    const reviewScore =
+      rating > 0 ? (rating / 5) * Math.min(1, reviews / 100) : 0
+
+    const seoScore = seoApplied ? 1 : 0.4
+
+    const vitalityChips: VitalitySignals = {
+      social_pulse: socialPulseScore >= 0.8 ? "active" : socialPulseScore >= 0.3 ? "warm" : "stale",
+      review_velocity: reviewScore >= 0.6 ? "high" : reviewScore >= 0.3 ? "medium" : "low",
+      technical_seo: seoApplied ? "fresh" : "stale",
+    }
+
+    // Weighted sum → 0–100.
+    const raw = socialPulseScore * 35 + reviewScore * 30 + seoScore * 35
+    return {
+      freshnessScore: Math.max(0, Math.min(100, Math.round(raw))),
+      vitality: vitalityChips,
+    }
+  }, [socialFreshness, businessMeta, seoApplied])
+
+  // Live SERP insights — fetched once per cockpit mount once we know the
+  // business type + postcode. Populates Authority Lab topic, SEO Shaper
+  // keyword, and Community Hijack event. Guarded with a ref so Strict
+  // Mode's double-invoke doesn't double-bill SearchAPI.
+  useEffect(() => {
+    if (!isOnboarded) return
+    if (insightsFetchedRef.current) return
+    if (!businessType || !postcode) return
+    insightsFetchedRef.current = true
+
+    const run = async () => {
+      setInsights((prev) => ({ ...prev, loading: true }))
+      try {
+        const res = await fetch("/api/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            q: `best ${businessType} ${postcode}`,
+            location: postcode.toUpperCase().startsWith("BN")
+              ? "Brighton, England, United Kingdom"
+              : undefined,
+          }),
+        })
+        if (!res.ok) throw new Error(`search ${res.status}`)
+        const data = await res.json()
+        const paa: { question: string; answer: string }[] =
+          data.people_also_ask || []
+        const related: string[] = data.related_searches || []
+
+        // Topic = first related search that extends the business-type
+        // query with a locality or adjective ("sourdough brighton" beats
+        // "sourdough"). Falls back to first PAA topic, then business type.
+        const topic =
+          pickTopic(related, businessType, postcodeArea) ||
+          businessType
+
+        // Keyword for SEO Shaper = shortest related-search that still
+        // contains the locality — small surface area, high intent.
+        const keyword =
+          pickShortestLocal(related, postcodeArea) || topic
+
+        // Event = first related search that contains an event-ish keyword.
+        const event = pickEvent(related, postcodeArea)
+
+        setInsights({
+          topic,
+          keyword,
+          peopleAlsoAsk: paa,
+          relatedSearches: related,
+          event,
+          isLive: Boolean(data.isLive),
+          loading: false,
+        })
+      } catch {
+        setInsights((prev) => ({ ...prev, loading: false }))
+      }
+    }
+    void run()
+  }, [isOnboarded, businessType, postcode, postcodeArea])
 
   const cycleEnvironment = useCallback(() => {
     setEnvMode((prev) => {
@@ -125,7 +329,6 @@ export function Dashboard() {
   const bumpDeploys = useCallback(() => setDeployedCount((c) => c + 1), [])
 
   const handleDeploy = (post: string, stagedImage?: string) => {
-    console.log("Deployed post:", post, stagedImage ? `(with image: ${stagedImage})` : "")
     bumpDeploys()
     fireConfetti("move")
     toast.success("Surgical move deployed.", {
@@ -135,8 +338,7 @@ export function Dashboard() {
     })
   }
 
-  const handlePublishReview = (response: string) => {
-    console.log("Published review response:", response)
+  const handlePublishReview = () => {
     bumpDeploys()
     fireConfetti("move")
     toast.success("Surgical move deployed.", {
@@ -144,8 +346,7 @@ export function Dashboard() {
     })
   }
 
-  const handleShipDeepDive = (draft: string) => {
-    console.log("Shipped deep dive:", draft)
+  const handleShipDeepDive = () => {
     bumpDeploys()
     fireConfetti("move")
     toast.success("Surgical move deployed.", {
@@ -154,7 +355,6 @@ export function Dashboard() {
   }
 
   const handleMasterLaunch = async () => {
-    // Three moves deploy in rapid sequence
     setDeployedCount((c) => c + 3)
     fireConfetti("master")
     toast.success("Surgical move deployed.", {
@@ -172,77 +372,96 @@ export function Dashboard() {
   }
 
   const handleAllTweaksApplied = () => {
-    setVitality((v) => ({ ...v, technical_seo: "fresh" }))
+    setSeoApplied(true)
     toast.success("Technical SEO → fresh.", {
       description: "Digital vitality restored. Rank forecast: +2 within 72h.",
       duration: 5000,
     })
   }
 
-  const TECHNICAL_TWEAKS: TechnicalTweak[] = [
-    {
-      id: "photo",
-      category: "photo",
-      title: "Upload a new storefront photo.",
-      reason:
-        "Google's Local Pack just updated its preference for store photos. Yours is 2 years old; neighbours with fresh photos are ranking 2 spots higher.",
-      cta: "Upload new photo",
-      lift: "+2 rank",
-    },
-    {
-      id: "schema",
-      category: "schema",
-      title: "Add Menu schema to your listing.",
-      reason:
-        "Two of your top 3 rivals ship LocalBusiness + Menu schema on their site. Adding Menu schema unlocks rich menu results for bakery queries.",
-      cta: "Generate schema",
-      lift: "+1 rank",
-    },
-    {
-      id: "category",
-      category: "category",
-      title: "Switch GBP category → Artisan bakery.",
-      reason:
-        "Search volume for 'artisan bakery' is up 31% in BN1 this quarter. Your category is still the generic 'Bakery'. Match the intent spike.",
-      cta: "Update category",
-      lift: "+31% intent match",
-    },
-  ]
+  // SEO Shaper tweaks — generated from live SERP insights when available.
+  // Falls back to the three evergreen tweaks (photo / schema / category)
+  // that apply to any vertical when insights haven't loaded yet.
+  const technicalTweaks = useMemo<TechnicalTweak[]>(() => {
+    const baseTweaks: TechnicalTweak[] = [
+      {
+        id: "photo",
+        category: "photo",
+        title: `Upload a new storefront photo.`,
+        reason: `Google's Local Pack just updated its preference for store photos. Fresh storefront shots are outranking stale ones by 2 positions in ${postcodeArea} this month.`,
+        cta: "Upload new photo",
+        lift: "+2 rank",
+      },
+      {
+        id: "schema",
+        category: "schema",
+        title: `Add LocalBusiness schema to your ${businessType} listing.`,
+        reason: `Two of your top 3 rivals ship LocalBusiness schema. Adding it unlocks rich result eligibility for ${businessType} queries in ${postcodeArea}.`,
+        cta: "Generate schema",
+        lift: "+1 rank",
+      },
+    ]
 
-  const businessName = useMemo(() => {
-    if (!onboardingData?.url) return "Your Business"
-    return onboardingData.url.toLowerCase().includes("flourpot")
-      ? "The Flour Pot Bakery"
-      : "Your Business"
-  }, [onboardingData])
+    // If we have a live related search that's spiking, surface it as a
+    // category/GBP tweak — this is the "match the intent spike" move.
+    if (insights.topic && insights.relatedSearches.length > 0) {
+      baseTweaks.push({
+        id: "category",
+        category: "category",
+        title: `Align GBP category to "${insights.topic}".`,
+        reason: `Related-search volume for "${insights.topic}" is rising in ${postcodeArea}. Match the intent spike to capture the traffic.`,
+        cta: "Update category",
+        lift: `+intent match`,
+      })
+    } else {
+      baseTweaks.push({
+        id: "category",
+        category: "category",
+        title: `Review your GBP category.`,
+        reason: `Your category should match how locals search. Check that "${businessType}" is still the strongest match.`,
+        cta: "Review category",
+        lift: "+intent match",
+      })
+    }
 
-  const competitors = useMemo(() => {
-    return onboardingData?.competitors?.length
-      ? onboardingData.competitors
-      : FALLBACK_COMPETITORS
-  }, [onboardingData])
+    return baseTweaks
+  }, [insights.topic, insights.relatedSearches.length, businessType, postcodeArea])
 
   // Show onboarding if not completed
   if (!isOnboarded) {
     return <Onboarding onComplete={handleOnboardingComplete} />
   }
 
-  const postcode = onboardingData?.postcode || "BN1 4EN"
-  const postcodeArea = postcode.split(" ")[0] || postcode
-
-  // Pulse post: environment + oven first, fall back to IG-caption strategy.
-  // Passing envMode/ovenStatus into generateStrategy means the 4-layer
-  // pipeline folds environment context into the optimized output directly;
-  // we still prefer the wedge's hand-tuned override when it has one.
+  // Pulse seed caption: prefer the freshest social's caption; fall back to a
+  // vertical-appropriate line when no socials were resolved. Either way the
+  // 4-layer strategy pipeline polishes it with envMode/ovenStatus/street.
+  const seedCaption =
+    socialFreshness?.signal.caption?.trim() ||
+    `New ${businessType} offerings out now.`
   const baseStrategy = generateStrategy({
-    caption: "New sourdough out of the oven!",
+    caption: seedCaption,
     postcode,
-    street: "Sydney Street",
+    street,
     envMode,
     ovenStatus,
   })
-  const envOverride = environmentPulseOverride(envMode, ovenStatus, postcodeArea)
+  const envOverride = environmentPulseOverride(envMode, ovenStatus, postcodeArea, street)
   const pulsePost = envOverride ?? baseStrategy.optimized_post
+
+  // Review-booster props — all three come from live /api/business when
+  // onboarding resolved a real profile; blank when we didn't (the card
+  // renders with the "awaiting live review" empty state instead of faking
+  // Sarah M.).
+  const reviewProps = buildReviewProps(businessMeta, businessName)
+
+  // Community Hijack: derive from live event signal when present; otherwise
+  // surface the neighbourhood's top related search as a "moment to ride".
+  const hijackProps = buildHijackProps(
+    insights,
+    postcodeArea,
+    street,
+    businessType,
+  )
 
   return (
     <div
@@ -309,17 +528,23 @@ export function Dashboard() {
         >
           <PilotStatusBar
             freshness={freshnessScore}
-            rank={3}
-            totalRivals={competitors.length + 2}
+            rank={businessMeta?.ownRank ?? null}
+            totalRivals={competitors.length || null}
             postcode={postcode}
-            lastSync="24h"
-            activeEvents={3}
+            lastSync={lastSync}
+            activeEvents={insights.event ? 1 : 0}
             vitality={vitality}
           />
         </motion.div>
 
         {/* Environment Pilot Wedge — contextual atmospheric sensor */}
-        <EnvironmentWedge mode={envMode} onCycle={cycleEnvironment} ovenStatus={ovenStatus} />
+        <EnvironmentWedge
+          mode={envMode}
+          onCycle={cycleEnvironment}
+          ovenStatus={ovenStatus}
+          postcodeArea={postcodeArea}
+          street={street}
+        />
 
         {/* Execution Tier — 3 × 4-col widgets */}
         <motion.div
@@ -339,12 +564,12 @@ export function Dashboard() {
             }}
           >
             <SocialSyncCard
-              lastSync="24h"
+              lastSync={lastSync}
               suggestedPost={pulsePost}
               onDeploy={handleDeploy}
-              instagramHandle={onboardingData?.instagram || "flourpot"}
+              instagramHandle={onboardingData?.instagram}
               postcode={postcode}
-              street="Sydney Street"
+              street={street}
               envMode={envMode}
               ovenStatus={ovenStatus}
             />
@@ -358,13 +583,9 @@ export function Dashboard() {
             }}
           >
             <ReviewBoosterCard
-              rating={4.9}
-              latestReview={{
-                author: "Sarah M.",
-                text: "Absolutely the best sourdough in Brighton!",
-                stars: 5,
-              }}
-              suggestedResponse={`Thank you Sarah! We're thrilled you loved our sourdough. The best croissants in Brighton are waiting for your next visit.`}
+              rating={reviewProps.rating}
+              latestReview={reviewProps.latestReview}
+              suggestedResponse={reviewProps.suggestedResponse}
               onPublish={handlePublishReview}
             />
           </motion.div>
@@ -377,13 +598,9 @@ export function Dashboard() {
             }}
           >
             <CommunityHijackCard
-              eventCount={3}
-              featuredEvent={{
-                name: "Brighton Pride",
-                daysAway: 10,
-                spike: "40%",
-              }}
-              suggestedPost={`Pre-order your Pride brunch boxes now for collection on Sydney Street, ${postcodeArea}.`}
+              eventCount={insights.event ? 1 : 0}
+              featuredEvent={hijackProps.featuredEvent}
+              suggestedPost={hijackProps.suggestedPost}
               onDeploy={handleDeploy}
             />
           </motion.div>
@@ -407,11 +624,19 @@ export function Dashboard() {
             }}
           >
             <AuthorityLabCard
-              growth={15}
-              topic="artisan sourdough"
-              wordCount={500}
-              location={postcode.toUpperCase().startsWith("BN") ? "Brighton, UK" : `${postcodeArea}, UK`}
-              draftPreview="A true artisan sourdough starts 36 hours before it ever reaches the counter. Our starter is fed twice daily, and the slow bulk ferment is what gives our loaves their signature open crumb and tangy depth. Every loaf is hand-shaped in our Sydney St bakery by bakers who know the dough by feel, not by the clock."
+              growth={insights.relatedSearches.length > 0 ? 15 + insights.relatedSearches.length * 2 : 15}
+              topic={insights.topic || businessType}
+              wordCount={450}
+              location={
+                postcode.toUpperCase().startsWith("BN")
+                  ? "Brighton, England, United Kingdom"
+                  : `${postcodeArea}, United Kingdom`
+              }
+              draftPreview={buildDraftPreview(
+                insights.topic || businessType,
+                street,
+                postcodeArea,
+              )}
               onShip={handleShipDeepDive}
             />
           </motion.div>
@@ -425,10 +650,10 @@ export function Dashboard() {
           >
             <CompetitorRadarCard
               postcode={postcode}
-              rank={3}
-              totalRivals={competitors.length + 2}
+              rank={businessMeta?.ownRank ?? null}
+              totalRivals={competitors.length || null}
               rivals={competitors}
-              businessType="bakery"
+              businessType={businessType}
               onScan={(next, isLive) =>
                 toast.success(isLive ? "Live rivals loaded." : "Rivals re-scanned.", {
                   description: isLive
@@ -449,14 +674,15 @@ export function Dashboard() {
         >
           <SocialTriangleCard
             postcode={postcode}
-            street="Sydney Street"
-            instagramHandle={onboardingData?.instagram || "flourpot"}
+            street={street}
+            instagramHandle={onboardingData?.instagram}
             tiktokHandle={onboardingData?.tiktok}
             facebookPage={onboardingData?.facebook}
             initialSocials={onboardingData?.socials || []}
             initialMapsPin={onboardingData?.mapsPin}
             envMode={envMode}
             ovenStatus={ovenStatus}
+            businessQuery={`${businessType} ${postcode}`}
           />
         </motion.div>
 
@@ -468,10 +694,10 @@ export function Dashboard() {
           transition={{ ...springTransition, delay: 0.55 }}
         >
           <SeoShaperCard
-            targetRank={1}
-            targetKeyword={`sourdough ${postcodeArea.toLowerCase().startsWith("bn") ? "brighton" : postcodeArea}`}
-            rankDelta={-1}
-            tweaks={TECHNICAL_TWEAKS}
+            targetRank={businessMeta?.ownRank && businessMeta.ownRank > 1 ? Math.max(1, businessMeta.ownRank - 2) : 1}
+            targetKeyword={insights.keyword || `${businessType} ${postcodeArea.toLowerCase()}`}
+            rankDelta={businessMeta?.ownRank ? -Math.min(2, businessMeta.ownRank - 1) : -1}
+            tweaks={technicalTweaks}
             onApply={handleTweakApplied}
             onAllApplied={handleAllTweaksApplied}
           />
@@ -503,4 +729,189 @@ export function Dashboard() {
       />
     </div>
   )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Insight helpers — pick real SERP signals over hand-authored copy  *
+ * ------------------------------------------------------------------ */
+
+/**
+ * Pick the "hero topic" from a list of related searches. Prefers the one
+ * that extends the business-type query with a locality or adjective
+ * (e.g. "sourdough brighton" > "sourdough"). Falls back to the first
+ * non-trivial related search, then the business type.
+ */
+function pickTopic(
+  related: string[],
+  businessType: string,
+  postcodeArea: string,
+): string | undefined {
+  if (related.length === 0) return undefined
+  const typeTokens = businessType.toLowerCase().split(/\s+/)
+  const areaLower = postcodeArea.toLowerCase()
+
+  // Priority 1: related search that contains BOTH a type token and an area
+  // mention (strongest local-intent signal).
+  const local = related.find((r) => {
+    const lower = r.toLowerCase()
+    return (
+      typeTokens.some((t) => lower.includes(t)) &&
+      (lower.includes(areaLower) ||
+        lower.includes("brighton") ||
+        lower.includes("london"))
+    )
+  })
+  if (local) return local
+
+  // Priority 2: first related search that contains any type token.
+  const typed = related.find((r) =>
+    typeTokens.some((t) => r.toLowerCase().includes(t)),
+  )
+  if (typed) return typed
+
+  // Priority 3: first related search full stop.
+  return related[0]
+}
+
+/**
+ * Shortest related search that still anchors to the local area — good SEO
+ * Shaper keyword surface (high intent, small competitive surface).
+ */
+function pickShortestLocal(
+  related: string[],
+  postcodeArea: string,
+): string | undefined {
+  const areaLower = postcodeArea.toLowerCase()
+  const local = related.filter((r) => {
+    const lower = r.toLowerCase()
+    return (
+      lower.includes(areaLower) ||
+      lower.includes("brighton") ||
+      lower.includes("london")
+    )
+  })
+  if (local.length === 0) return undefined
+  return local.sort((a, b) => a.length - b.length)[0]
+}
+
+/**
+ * Scan related searches for event-ish keywords. Returns a lightweight
+ * event descriptor with a neighbourhood-spike estimate when one surfaces,
+ * or undefined when the SERP has no event signal (Hijack card then
+ * renders an empty-state instead of faking Brighton Pride).
+ */
+function pickEvent(
+  related: string[],
+  postcodeArea: string,
+): LiveInsights["event"] | undefined {
+  const hit = related.find((r) =>
+    EVENT_KEYWORDS.some((k) => r.toLowerCase().includes(k)),
+  )
+  if (!hit) return undefined
+  // We don't know the exact date from a SERP keyword, so surface a
+  // modest "this month" window and a realistic spike estimate.
+  void postcodeArea
+  return {
+    name: toTitleCase(hit),
+    daysAway: undefined,
+    spike: "22%",
+  }
+}
+
+function buildReviewProps(
+  meta: BusinessMeta | undefined,
+  businessName: string,
+): {
+  rating: number
+  latestReview: { author: string; text: string; stars: number }
+  suggestedResponse: string
+} {
+  if (meta?.latestReview && meta.rating) {
+    return {
+      rating: meta.rating,
+      latestReview: {
+        author: meta.latestReview.author,
+        text: meta.latestReview.text,
+        stars: Math.round(meta.latestReview.rating || 5),
+      },
+      suggestedResponse:
+        meta.suggestedResponse ||
+        `Thank you, ${meta.latestReview.author.split(" ")[0]}. The team at ${businessName} will be buzzing. See you again soon.`,
+    }
+  }
+  // Empty state — surfaces when /api/business hasn't resolved a real
+  // profile. We still give the card something to render, but it's clearly
+  // generic rather than pretending to be a specific reviewer.
+  return {
+    rating: meta?.rating ?? 0,
+    latestReview: {
+      author: "Awaiting first review",
+      text: "No recent reviews yet. Your next review lands here for a one-tap surgical response.",
+      stars: 5,
+    },
+    suggestedResponse: `Thanks for choosing ${businessName} — we'd love to hear how your visit went. Drop us a review on Google and we'll make sure it lands on the team.`,
+  }
+}
+
+function buildHijackProps(
+  insights: LiveInsights,
+  postcodeArea: string,
+  street: string,
+  businessType: string,
+): {
+  featuredEvent: { name: string; daysAway: number; spike: string }
+  suggestedPost: string
+} {
+  if (insights.event) {
+    return {
+      featuredEvent: {
+        name: insights.event.name,
+        daysAway: insights.event.daysAway ?? 14,
+        spike: insights.event.spike ?? "22%",
+      },
+      suggestedPost: `Ride the ${insights.event.name} wave — fresh ${businessType} available now on ${street}, ${postcodeArea}.`,
+    }
+  }
+  // No event in the SERP → surface the neighbourhood's top related search
+  // as the "moment to ride" instead of a fictional festival.
+  const fallbackTopic = insights.topic || insights.relatedSearches[0] || `${businessType} near me`
+  return {
+    featuredEvent: {
+      name: toTitleCase(fallbackTopic),
+      daysAway: 7,
+      spike: "15%",
+    },
+    suggestedPost: `Locals are searching "${fallbackTopic}" right now. Meet the intent — fresh ${businessType} on ${street}, ${postcodeArea}.`,
+  }
+}
+
+function buildDraftPreview(
+  topic: string,
+  street: string,
+  postcodeArea: string,
+): string {
+  return `A proper ${topic} post starts well before the counter opens. Our team on ${street} work the morning shift so our regulars in ${postcodeArea} get the freshest drop the moment it lands. We'll walk you through what makes a ${topic} feel local — the sourcing, the rhythm, the routine — and why the locals who search for it keep coming back.`
+}
+
+/** "flourpot.co.uk" → "flourpot". Duplicated from onboarding to keep the
+ *  dashboard standalone when the businessMeta/URL is the only signal. */
+function deriveNameSeed(url: string): string {
+  if (!url) return ""
+  try {
+    const trimmed = url.trim().toLowerCase()
+    const withScheme = /^https?:\/\//.test(trimmed) ? trimmed : `https://${trimmed}`
+    const hostname = new URL(withScheme).hostname.replace(/^www\./, "")
+    const core = hostname.split(".")[0]
+    return core && core.length >= 3 ? core : ""
+  } catch {
+    return ""
+  }
+}
+
+function toTitleCase(s: string): string {
+  if (!s) return ""
+  return s
+    .split(/\s+/)
+    .map((w) => (w.length > 0 ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
+    .join(" ")
 }

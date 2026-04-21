@@ -34,7 +34,39 @@ export interface MapsPinSnapshot {
   lng?: number
   topResultName?: string
   topResultAddress?: string
+  topResultType?: string
+  topResultPlaceId?: string
+  topResultRating?: number
+  topResultReviews?: number
   nearbyCount: number
+  isLive: boolean
+}
+
+/**
+ * Consolidated profile for the owner's own business, resolved via
+ * `/api/business` (google_maps → google_maps_reviews). Populated during
+ * onboarding step 5 so the cockpit can land with real rating, real latest
+ * review, and the real street anchor without another round-trip.
+ */
+export interface BusinessMetaSnapshot {
+  name: string
+  address?: string
+  street?: string
+  postcode: string
+  businessType?: string
+  lat?: number
+  lng?: number
+  rating?: number
+  totalReviews?: number
+  placeId?: string
+  latestReview?: {
+    author: string
+    rating: number
+    text: string
+    time: string
+  }
+  suggestedResponse?: string
+  ownRank?: number
   isLive: boolean
 }
 
@@ -48,6 +80,7 @@ interface OnboardingProps {
     competitors?: Competitor[]
     socials?: SocialSnapshot[]
     mapsPin?: MapsPinSnapshot
+    businessMeta?: BusinessMetaSnapshot
   }) => void
 }
 
@@ -74,6 +107,82 @@ async function fetchJSON<T>(
   } catch {
     return null
   }
+}
+
+/**
+ * Pull a searchable business-name token out of a URL. We strip the scheme,
+ * `www.`, path, and TLD segments, leaving just the domain core —
+ * "flourpot.co.uk" → "flourpot". Used as the Maps `q` seed before the
+ * canonical name comes back from Google. Returns an empty string when the
+ * URL is unparseable or obviously not a business domain.
+ */
+function deriveNameSeed(url: string): string {
+  if (!url) return ""
+  try {
+    const trimmed = url.trim().toLowerCase()
+    // Normalise to a parseable URL even when the user omits the scheme.
+    const withScheme = /^https?:\/\//.test(trimmed)
+      ? trimmed
+      : `https://${trimmed}`
+    const hostname = new URL(withScheme).hostname.replace(/^www\./, "")
+    // Core = first label, e.g. "flourpot.co.uk" → "flourpot"
+    const core = hostname.split(".")[0]
+    return core && core.length >= 3 ? core : ""
+  } catch {
+    return ""
+  }
+}
+
+/**
+ * Extract the street segment out of a Google-format address
+ * ("40 Sydney Street, Brighton BN1 4EN" → "Sydney Street"). Used when the
+ * /api/business fallback path has to derive a street from the Maps pin
+ * alone.
+ */
+function extractStreet(address?: string): string | undefined {
+  if (!address) return undefined
+  const first = address.split(",")[0]?.trim()
+  if (!first) return undefined
+  return first.replace(/^\d+\s*[A-Za-z]?\s+/, "").trim() || undefined
+}
+
+/**
+ * Map Google's free-text category label to the compact business-type token
+ * the scrape route expects ("Coffee shop" → "coffee shop"). Falls back to
+ * the URL-seed, then a generic `local business` keyword so the scrape
+ * still returns *something* useful for any vertical.
+ */
+function inferBusinessType(
+  topResultType?: string,
+  nameSeed?: string,
+): string {
+  if (topResultType && topResultType.trim().length >= 3) {
+    return topResultType.toLowerCase()
+  }
+  if (nameSeed && nameSeed.length >= 3) return `${nameSeed} business`
+  return "local business"
+}
+
+/**
+ * Locate the owner's business inside the scraped local pack. We normalise
+ * both names (lowercase, strip punctuation, collapse whitespace) and check
+ * for a substring match in either direction — Google's canonical name can
+ * be longer ("The Flour Pot Bakery") or shorter ("Flour Pot") than the one
+ * we resolved. Returns `-1` when the owner isn't in the pack (e.g. they
+ * rank below the top 20 or the type query didn't surface them).
+ */
+function findOwnRank(name: string, competitors: Competitor[]): number {
+  const normalise = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+  const needle = normalise(name)
+  return competitors.findIndex((c) => {
+    const hay = normalise(c.name)
+    return hay === needle || hay.includes(needle) || needle.includes(hay)
+  })
 }
 
 async function fetchSocial(
@@ -153,18 +262,62 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       // once at the top for clarity.
       const inputs = { url, postcode, instagram, tiktok, facebook }
 
+      // Derive a best-guess business name from the URL domain so the first
+      // Maps query has something to latch onto before we know the real
+      // Google-profile name. "flourpot.co.uk" → "flourpot" → used as a
+      // keyword inside the Maps search. The live SearchAPI response then
+      // hands us the canonical business name + type.
+      const nameSeed = deriveNameSeed(url)
+
       let competitors: Competitor[] = []
       let socials: SocialSnapshot[] = []
       let mapsPin: MapsPinSnapshot | undefined
+      let businessMeta: BusinessMetaSnapshot | undefined
 
-      // Step 1 — Google Maps profile (google_maps engine). Minimum 1.2s so
-      // the checkmark doesn't snap before the user registers the label.
+      // Step 1 — Google Maps profile (google_maps engine) + business detail
+      // (google_maps + google_maps_reviews, via /api/business). The Maps
+      // call plants the pin; /api/business returns the owner's own rating,
+      // latest review, suggested response draft, and street anchor. We fire
+      // them in parallel on `nameSeed + postcode` — /api/business falls
+      // back cleanly when the URL-derived seed doesn't match a real GBP.
       setStatus("maps", "loading")
-      const [mapsResult] = await Promise.all([
-        fetchJSON<MapsPinSnapshot>("/api/maps", { postcode, q: `bakery ${postcode}` }),
+      const [mapsResult, businessResult] = await Promise.all([
+        fetchJSON<MapsPinSnapshot>("/api/maps", {
+          postcode,
+          q: nameSeed ? `${nameSeed} ${postcode}` : postcode,
+        }),
+        nameSeed
+          ? fetchJSON<BusinessMetaSnapshot>("/api/business", {
+              name: nameSeed,
+              postcode,
+            })
+          : Promise.resolve(null),
         new Promise((r) => setTimeout(r, 1200)),
       ])
       if (mapsResult) mapsPin = mapsResult
+      if (businessResult) {
+        businessMeta = {
+          ...businessResult,
+          postcode,
+          businessType: mapsResult?.topResultType || businessResult.businessType,
+        }
+      } else if (mapsResult?.topResultName) {
+        // Maps resolved a real profile but /api/business didn't — synthesise a
+        // thin meta so downstream cards still get the canonical name + street.
+        businessMeta = {
+          name: mapsResult.topResultName,
+          address: mapsResult.topResultAddress,
+          street: extractStreet(mapsResult.topResultAddress),
+          postcode,
+          businessType: mapsResult.topResultType,
+          lat: mapsResult.lat,
+          lng: mapsResult.lng,
+          rating: mapsResult.topResultRating,
+          totalReviews: mapsResult.topResultReviews,
+          placeId: mapsResult.topResultPlaceId,
+          isLive: Boolean(mapsResult.isLive),
+        }
+      }
       setStatus("maps", "success")
 
       // Step 2 — Socials in parallel (IG + TikTok + FB). Only fire the
@@ -191,18 +344,33 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       socials = socialResults.filter((s): s is SocialSnapshot => s !== null)
       setStatus("socials", "success")
 
-      // Step 3 — Postcode gap (google_local).
+      // Step 3 — Postcode gap (google_local). Business type now drives the
+      // query: if Maps resolved `topResultType: "Coffee shop"`, we search
+      // coffee shops, not bakeries. Falls back to the seed + a generic
+      // "near me" keyword if we never resolved a type.
       await new Promise((r) => setTimeout(r, 300))
       setStatus("gap", "loading")
+      const resolvedType = inferBusinessType(
+        mapsResult?.topResultType,
+        nameSeed,
+      )
       try {
         const res = await fetch("/api/scrape", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ postcode, businessType: "bakery" }),
+          body: JSON.stringify({ postcode, businessType: resolvedType }),
         })
         if (res.ok) {
           const data = await res.json()
           competitors = data.competitors || []
+          // Compute the owner's rank inside the local pack by matching the
+          // business name (case-insensitive, punctuation-tolerant). Missing
+          // from the pack → undefined, and the radar card falls back to
+          // "position unknown" rather than faking rank #3.
+          if (businessMeta?.name && competitors.length > 0) {
+            const rank = findOwnRank(businessMeta.name, competitors)
+            if (rank !== -1) businessMeta.ownRank = rank + 1
+          }
         }
       } catch {
         /* fallback handled downstream */
@@ -210,16 +378,19 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       await new Promise((r) => setTimeout(r, 600))
       setStatus("gap", "success")
 
-      // Step 4 — SERP intent warm-up (google). Fire-and-forget so the Lab
-      // widget's own fetch can read a warm cache; we don't block on it.
+      // Step 4 — SERP intent warm-up (google). Query now keys off the real
+      // business type so the Authority Lab lands on-topic for any vertical.
+      // Fire-and-forget so the Lab widget's own fetch reads a warm cache.
       await new Promise((r) => setTimeout(r, 300))
       setStatus("ai", "loading")
       fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          q: `best artisan sourdough ${postcode}`,
-          location: postcode.toUpperCase().startsWith("BN") ? "Brighton, UK" : undefined,
+          q: `best ${resolvedType} ${postcode}`,
+          location: postcode.toUpperCase().startsWith("BN")
+            ? "Brighton, England, United Kingdom"
+            : undefined,
         }),
       }).catch(() => {})
       await new Promise((r) => setTimeout(r, 1500))
@@ -235,6 +406,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         competitors,
         socials,
         mapsPin,
+        businessMeta,
       })
     }
 

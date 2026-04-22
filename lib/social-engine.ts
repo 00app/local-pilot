@@ -43,6 +43,8 @@ export interface RawSocialPayload {
   likes?: number
   page_id?: string
   post?: {
+    /** SearchAPI instagram_profile uses `link` for the primary image URL. */
+    link?: string
     image_url?: string
     thumbnail_url?: string
     caption?: string
@@ -72,7 +74,7 @@ export function normalizeSocialData(
     platform,
     handle: raw.username || raw.handle || raw.page_id || "",
     displayName: raw.full_name || raw.display_name || raw.page_name,
-    mediaUrl: p.image_url || p.thumbnail_url,
+    mediaUrl: p.image_url || p.thumbnail_url || p.link,
     mediaType: platform === "tiktok" ? "video" : "image",
     caption: (p.caption || "").toString(),
     engagement,

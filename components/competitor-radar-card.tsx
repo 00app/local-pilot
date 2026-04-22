@@ -311,7 +311,7 @@ export function CompetitorRadarCard({
               : "awaiting first scan"}
           </p>
           <span
-            className={`text-[10px] font-mono uppercase tracking-[0.15em] px-2 py-1 rounded-full ${
+            className={`text-[10px] text-center font-mono uppercase tracking-[0.15em] px-2 py-1 rounded-full ${
               isLive
                 ? "bg-[#2AE855] text-black font-semibold"
                 : "bg-white/50 opacity-70"

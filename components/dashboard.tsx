@@ -28,6 +28,9 @@ import {
 } from "@/components/environment-wedge"
 import { generateStrategy } from "@/lib/strategy"
 import { formatAge, calculateFreshnessLeader } from "@/lib/social-engine"
+import type { EventsPayload } from "@/lib/events-payload"
+import { loadPilotSession, savePilotSession } from "@/lib/pilot-storage"
+import { proxiedSocialImageUrl } from "@/lib/social-image-url"
 import type { OvenStatus } from "@/lib/types"
 
 interface ScrapedCompetitor {
@@ -88,6 +91,8 @@ interface LiveInsights {
     daysAway?: number
     spike?: string
   }
+  /** google_events — local pack + major draws (see `/api/events`). */
+  events: EventsPayload | null
   isLive: boolean
   loading: boolean
 }
@@ -116,6 +121,12 @@ const EVENT_KEYWORDS = [
   "halloween",
 ]
 
+function isStoredSession(x: unknown): x is OnboardingData {
+  if (!x || typeof x !== "object") return false
+  const o = x as Record<string, unknown>
+  return typeof o.postcode === "string" && typeof o.url === "string"
+}
+
 export function Dashboard() {
   const [isOnboarded, setIsOnboarded] = useState(false)
   const [onboardingData, setOnboardingData] = useState<OnboardingData | null>(null)
@@ -127,10 +138,23 @@ export function Dashboard() {
   const [insights, setInsights] = useState<LiveInsights>({
     peopleAlsoAsk: [],
     relatedSearches: [],
+    events: null,
     isLive: false,
     loading: false,
   })
   const insightsFetchedRef = useRef(false)
+  const [sessionReady, setSessionReady] = useState(false)
+
+  // Restore completed calibration from localStorage so refresh keeps the cockpit.
+  useEffect(() => {
+    const raw = loadPilotSession()
+    if (isStoredSession(raw)) {
+      setOnboardingData(raw)
+      setIsOnboarded(true)
+      setShowCockpit(true)
+    }
+    setSessionReady(true)
+  }, [])
 
   const postcode = onboardingData?.postcode || "BN1 4EN"
   const postcodeArea = postcode.split(" ")[0] || postcode
@@ -233,18 +257,36 @@ export function Dashboard() {
     const run = async () => {
       setInsights((prev) => ({ ...prev, loading: true }))
       try {
-        const res = await fetch("/api/search", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            q: `best ${businessType} ${postcode}`,
-            location: postcode.toUpperCase().startsWith("BN")
-              ? "Brighton, England, United Kingdom"
-              : undefined,
+        const [searchRes, eventsRes] = await Promise.all([
+          fetch("/api/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              q: `best ${businessType} ${postcode}`,
+              location: postcode.toUpperCase().startsWith("BN")
+                ? "Brighton, England, United Kingdom"
+                : undefined,
+            }),
           }),
-        })
-        if (!res.ok) throw new Error(`search ${res.status}`)
-        const data = await res.json()
+          fetch("/api/events", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ postcode, businessType }),
+          }),
+        ])
+        if (!searchRes.ok) throw new Error(`search ${searchRes.status}`)
+        const data = await searchRes.json()
+        let eventsPayload: EventsPayload | null = null
+        if (eventsRes.ok) {
+          try {
+            const ev = await eventsRes.json()
+            if (ev && typeof ev.totalCount === "number") {
+              eventsPayload = ev as EventsPayload
+            }
+          } catch {
+            eventsPayload = null
+          }
+        }
         const paa: { question: string; answer: string }[] =
           data.people_also_ask || []
         const related: string[] = data.related_searches || []
@@ -270,6 +312,7 @@ export function Dashboard() {
           peopleAlsoAsk: paa,
           relatedSearches: related,
           event,
+          events: eventsPayload,
           isLive: Boolean(data.isLive),
           loading: false,
         })
@@ -292,6 +335,7 @@ export function Dashboard() {
   }, [])
 
   const handleOnboardingComplete = async (data: OnboardingData) => {
+    savePilotSession(data)
     setOnboardingData(data)
     setIsOnboarded(true)
     setTimeout(() => setShowCockpit(true), 100)
@@ -427,6 +471,14 @@ export function Dashboard() {
     return baseTweaks
   }, [insights.topic, insights.relatedSearches.length, businessType, postcodeArea])
 
+  if (!sessionReady) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-8">
+        <span className="text-sm text-muted-foreground">Loading…</span>
+      </div>
+    )
+  }
+
   // Show onboarding if not completed
   if (!isOnboarded) {
     return <Onboarding onComplete={handleOnboardingComplete} />
@@ -454,8 +506,8 @@ export function Dashboard() {
   // Sarah M.).
   const reviewProps = buildReviewProps(businessMeta, businessName)
 
-  // Community Hijack: derive from live event signal when present; otherwise
-  // surface the neighbourhood's top related search as a "moment to ride".
+  // Community Hijack: prefer live google_events (local + major draws), then
+  // SERP event keyword, then related-search fallback.
   const hijackProps = buildHijackProps(
     insights,
     postcodeArea,
@@ -532,7 +584,10 @@ export function Dashboard() {
             totalRivals={competitors.length || null}
             postcode={postcode}
             lastSync={lastSync}
-            activeEvents={insights.event ? 1 : 0}
+            activeEvents={
+              insights.events?.totalCount ??
+              (insights.event ? 1 : 0)
+            }
             vitality={vitality}
           />
         </motion.div>
@@ -598,9 +653,15 @@ export function Dashboard() {
             }}
           >
             <CommunityHijackCard
-              eventCount={insights.event ? 1 : 0}
+              eventCount={hijackProps.eventCount}
               featuredEvent={hijackProps.featuredEvent}
               suggestedPost={hijackProps.suggestedPost}
+              intentKeyword={hijackProps.intentKeyword}
+              scopeLabel={hijackProps.scopeLabel}
+              eventsLive={hijackProps.eventsLive}
+              street={street}
+              postcodeArea={postcodeArea}
+              businessType={businessType}
               onDeploy={handleDeploy}
             />
           </motion.div>
@@ -709,7 +770,8 @@ export function Dashboard() {
           movesReady={3}
           stagedImages={(onboardingData?.socials || [])
             .map((s) => s.latestPost?.image)
-            .filter((src): src is string => Boolean(src))}
+            .filter((src): src is string => Boolean(src))
+            .map((src) => proxiedSocialImageUrl(src))}
         />
 
         <div className="h-10" aria-hidden />
@@ -859,29 +921,60 @@ function buildHijackProps(
   street: string,
   businessType: string,
 ): {
+  eventCount: number
   featuredEvent: { name: string; daysAway: number; spike: string }
   suggestedPost: string
+  intentKeyword: string
+  scopeLabel?: string
+  eventsLive: boolean
 } {
+  const intentKeyword = `${businessType} near me`
+  const ev = insights.events
+
+  if (ev?.featured) {
+    const spike = `${Math.min(38, 12 + Math.round(ev.totalCount * 0.8))}%`
+    const scopeLabel =
+      ev.featured.scope === "big" ? "major draw" : "local pulse"
+    return {
+      eventCount: ev.totalCount,
+      featuredEvent: {
+        name: ev.featured.title,
+        daysAway: ev.featured.daysAway,
+        spike,
+      },
+      suggestedPost: `Ride the ${ev.featured.title} wave — ${businessType} on ${street}, ${postcodeArea}. mention the event when you visit.`,
+      intentKeyword,
+      scopeLabel,
+      eventsLive: ev.isLive,
+    }
+  }
+
   if (insights.event) {
     return {
+      eventCount: 1,
       featuredEvent: {
         name: insights.event.name,
         daysAway: insights.event.daysAway ?? 14,
         spike: insights.event.spike ?? "22%",
       },
       suggestedPost: `Ride the ${insights.event.name} wave — fresh ${businessType} available now on ${street}, ${postcodeArea}.`,
+      intentKeyword,
+      eventsLive: insights.isLive,
     }
   }
   // No event in the SERP → surface the neighbourhood's top related search
   // as the "moment to ride" instead of a fictional festival.
   const fallbackTopic = insights.topic || insights.relatedSearches[0] || `${businessType} near me`
   return {
+    eventCount: 0,
     featuredEvent: {
       name: toTitleCase(fallbackTopic),
       daysAway: 7,
       spike: "15%",
     },
     suggestedPost: `Locals are searching "${fallbackTopic}" right now. Meet the intent — fresh ${businessType} on ${street}, ${postcodeArea}.`,
+    intentKeyword,
+    eventsLive: false,
   }
 }
 

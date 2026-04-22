@@ -3,6 +3,10 @@
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  loadPilotFormInputs,
+  savePilotFormInputs,
+} from "@/lib/pilot-storage"
 
 interface Competitor {
   name: string
@@ -201,6 +205,7 @@ async function fetchSocial(
     post?: {
       image_url?: string
       thumbnail_url?: string
+      link?: string
       caption?: string
       likes?: number
       comments?: number
@@ -215,7 +220,10 @@ async function fetchSocial(
     displayName: data.full_name || data.display_name || data.page_name,
     followers: data.followers || data.likes,
     latestPost: {
-      image: data.post.image_url || data.post.thumbnail_url,
+      image:
+        data.post.image_url ||
+        data.post.thumbnail_url ||
+        data.post.link,
       caption: (data.post.caption || "").toString(),
       likes: data.post.likes,
       comments: data.post.comments,
@@ -241,6 +249,32 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     { id: "ai", label: "Generating surgical strategy", status: "pending" },
   ])
   const [showCelebration, setShowCelebration] = useState(false)
+  const [inputsHydrated, setInputsHydrated] = useState(false)
+
+  // Restore URL / postcode / social handles from localStorage (client only).
+  useEffect(() => {
+    const saved = loadPilotFormInputs()
+    if (saved) {
+      if (typeof saved.url === "string") setUrl(saved.url)
+      if (typeof saved.postcode === "string") setPostcode(saved.postcode)
+      if (typeof saved.instagram === "string") setInstagram(saved.instagram)
+      if (typeof saved.tiktok === "string") setTiktok(saved.tiktok)
+      if (typeof saved.facebook === "string") setFacebook(saved.facebook)
+    }
+    setInputsHydrated(true)
+  }, [])
+
+  // Remember what the user typed across refresh / tab close.
+  useEffect(() => {
+    if (!inputsHydrated) return
+    savePilotFormInputs({
+      url,
+      postcode,
+      instagram,
+      tiktok,
+      facebook,
+    })
+  }, [inputsHydrated, url, postcode, instagram, tiktok, facebook])
 
   // Strict-mode + stale-dep safe: gate the whole async sequence behind a ref
   // so React 19 Strict Mode's double-mount doesn't kick the scrape twice,
@@ -426,7 +460,19 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-8">
+    <div
+      className={`min-h-screen bg-background flex items-center justify-center p-8 ${
+        step === 1 ? "flex-col gap-8" : ""
+      }`}
+    >
+      {step === 1 && (
+        <Button
+          onClick={() => setStep(2)}
+          className="h-14 px-10 text-lg font-semibold rounded-full bg-[#2AE855] text-black hover:bg-[#2AE855]/90 btn-squish shrink-0"
+        >
+          Start Calibration
+        </Button>
+      )}
       <div className="w-full max-w-xl">
         {/* Step 1: The Pilot's Welcome */}
         {step === 1 && (
@@ -459,15 +505,6 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 LOCAL PILOT. POWERED BY{" "}
                 <span className="font-bold text-[#2AE855]">BRIGHTLOCAL.</span>
               </p>
-            </div>
-
-            <div className="stagger-4">
-              <Button
-                onClick={() => setStep(2)}
-                className="h-14 px-10 text-lg font-semibold rounded-full bg-[#2AE855] text-black hover:bg-[#2AE855]/90 btn-squish"
-              >
-                Start Calibration
-              </Button>
             </div>
           </div>
         )}

@@ -79,6 +79,7 @@ export function SurgicalLaunch({
                     src={src}
                     alt=""
                     className="w-9 h-9 rounded-lg object-cover ring-2 ring-[#1a1a1a] dark:ring-white bg-white/10"
+                    referrerPolicy="no-referrer"
                   />
                 ))}
               </div>

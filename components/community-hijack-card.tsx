@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { PilotInfo, PILOT_TINT } from "@/components/pilot-info"
@@ -15,6 +15,14 @@ interface CommunityHijackCardProps {
   eventCount: number
   featuredEvent: LocalEvent
   suggestedPost: string
+  /** Shown in the intent line, e.g. "bakery near me". */
+  intentKeyword?: string
+  /** "local pulse" vs "major draw" when sourced from google_events. */
+  scopeLabel?: string
+  eventsLive?: boolean
+  street?: string
+  postcodeArea?: string
+  businessType?: string
   onDeploy: (post: string) => void
 }
 
@@ -22,6 +30,12 @@ export function CommunityHijackCard({
   eventCount,
   featuredEvent,
   suggestedPost,
+  intentKeyword = "near me",
+  scopeLabel,
+  eventsLive = false,
+  street = "your street",
+  postcodeArea = "",
+  businessType = "business",
   onDeploy,
 }: CommunityHijackCardProps) {
   const [postText, setPostText] = useState(suggestedPost)
@@ -30,11 +44,21 @@ export function CommunityHijackCard({
   const [isDeploying, setIsDeploying] = useState(false)
   const [isDeployed, setIsDeployed] = useState(false)
 
-  const alternativePosts = [
-    `${featuredEvent.name} crowds are heading our way. Reserve your collection slot on Sydney St now.`,
-    `Planning your ${featuredEvent.name} day? Grab a pre-ordered box and skip the queue.`,
-    `${featuredEvent.name} weekend calls for something special. Try our limited festival edition.`,
-  ]
+  useEffect(() => {
+    if (isEditing) return
+    setPostText(suggestedPost)
+  }, [suggestedPost, isEditing])
+
+  const alternativePosts = useMemo(() => {
+    const st = street
+    const pc = postcodeArea
+    const name = featuredEvent.name
+    return [
+      `${name} crowds are heading our way. Reserve your slot on ${st}${pc ? `, ${pc}` : ""}.`,
+      `Planning your ${name} day? Grab a pre-order and skip the queue.`,
+      `${name} weekend — something special for ${businessType} regulars on ${st}.`,
+    ]
+  }, [featuredEvent.name, street, postcodeArea, businessType])
 
   const handleRegenerate = async () => {
     setIsRegenerating(true)
@@ -53,27 +77,48 @@ export function CommunityHijackCard({
     setTimeout(() => setIsDeployed(false), 3000)
   }
 
+  const scopeChip =
+    scopeLabel === "major draw"
+      ? "major"
+      : scopeLabel === "local pulse"
+        ? "local"
+        : null
+
   return (
     <div className="strategy-card card-sky h-full">
       <PilotInfo
         tint={PILOT_TINT.sky}
         title="intent hijacking"
-        explanation="we scrape upcoming neighborhood events to draft posts that intercept traffic from visitors searching for things to do in brighton."
+        explanation="we pull live google events near you (local pulse) plus major draws in the region, then draft posts that intercept visitors searching for things to do around your postcode."
       />
       {/* Big Number */}
       <div className="mb-4">
         <p className="stat-number">
-          {String(eventCount).padStart(2, "0")}
+          {String(Math.min(99, eventCount)).padStart(2, "0")}
         </p>
-        <p className="pilot-label">local events incoming.</p>
+        <p className="pilot-label flex flex-wrap items-center gap-2">
+          <span>local + major events tracked.</span>
+          {eventsLive && (
+            <span className="text-[9px] font-mono uppercase tracking-[0.15em] px-1.5 py-0.5 rounded-full bg-[#2AE855] text-black font-semibold">
+              live
+            </span>
+          )}
+        </p>
       </div>
 
       {/* Strategy Label */}
       <div className="mb-4">
         <p className="widget-index mb-2">04 · The hijack</p>
         <h3 className="text-xl font-bold">Community hijack.</h3>
-        <p className="text-sm opacity-80 mt-1 line-clamp-2">
-          {featuredEvent.name} is {featuredEvent.daysAway} days away. {featuredEvent.spike} spike in &quot;bakery near me&quot; expected.
+        <p className="text-sm opacity-80 mt-1 line-clamp-3">
+          {scopeChip && (
+            <span className="inline-block mr-1.5 rounded-md bg-white/35 dark:bg-white/10 px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wide">
+              {scopeChip}
+            </span>
+          )}
+          <span className="font-medium text-foreground">{featuredEvent.name}</span>{" "}
+          is {featuredEvent.daysAway} days away. {featuredEvent.spike} spike in &quot;
+          {intentKeyword}&quot; expected.
         </p>
       </div>
 
@@ -85,12 +130,14 @@ export function CommunityHijackCard({
           </label>
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={() => setIsEditing(!isEditing)}
               className="text-xs font-medium px-2 py-1 rounded-lg bg-white/30 hover:bg-white/50 transition-colors"
             >
               {isEditing ? "Done" : "Edit"}
             </button>
             <button
+              type="button"
               onClick={handleRegenerate}
               disabled={isRegenerating}
               className="text-xs font-medium px-2 py-1 rounded-lg bg-white/30 hover:bg-white/50 transition-colors flex items-center gap-1"

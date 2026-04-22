@@ -394,14 +394,14 @@
     100% { box-shadow: 0 0 0 0 rgba(42, 232, 85, 0); }
   }
 
-  /* Editor field variant — wide cards get a more generous field (spec: 18px / sentence case) */
+  /* Editor field — match `.post-editor` type scale (15px) site-wide */
   .editor-field {
     background: rgba(255, 255, 255, 0.5);
     border: none;
     border-radius: 16px;
-    padding: 20px;
-    font-size: 18px;
-    line-height: 1.55;
+    padding: 12px;
+    font-size: 15px;
+    line-height: 1.5;
     text-transform: none;
     color: inherit;
     outline: none;

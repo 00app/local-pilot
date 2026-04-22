@@ -12,10 +12,17 @@ import { NextRequest, NextResponse } from "next/server"
  * by The Pulse widget. Falls back to a curated demo post if no API key.
  */
 
+interface CarouselItem {
+  type?: string
+  link?: string
+  thumbnail?: string
+}
+
 interface InstagramMediaNode {
-  // SearchAPI's `instagram_profile` canonical fields are `thumbnail` +
-  // `iso_date`; we keep the older synonyms for defensive fallback if the
-  // schema changes.
+  // SearchAPI docs: each post has `link` (full-size), `thumbnail`, `caption`,
+  // `iso_date`. Carousels add `carousel_items[]` with per-slide `link`.
+  // Video/reel rows may omit `thumbnail` but still ship `link`.
+  link?: string
   image_url?: string
   thumbnail?: string
   thumbnail_url?: string
@@ -27,6 +34,7 @@ interface InstagramMediaNode {
   taken_at?: string | number
   timestamp?: string
   permalink?: string
+  carousel_items?: CarouselItem[]
 }
 
 export interface InstagramLatest {
@@ -67,6 +75,31 @@ function normaliseHandle(raw: string): string {
   return raw.trim().replace(/^@/, "").split("/").filter(Boolean).pop() || ""
 }
 
+/** SearchAPI uses `link` for the primary media URL; thumbnails may be absent on reels/video. */
+function pickHttpUrl(...candidates: unknown[]): string {
+  for (const c of candidates) {
+    if (typeof c !== "string") continue
+    const s = c.trim()
+    if (s.startsWith("http://") || s.startsWith("https://")) return s
+  }
+  return ""
+}
+
+function firstImageFromPost(node: InstagramMediaNode | undefined): string {
+  if (!node) return ""
+  const fromCarousel =
+    node.carousel_items?.map((it) => pickHttpUrl(it.link, it.thumbnail)).find(Boolean) || ""
+  return pickHttpUrl(
+    // Official SearchAPI order (see instagram-profile-api docs).
+    node.link,
+    node.thumbnail,
+    node.image_url,
+    node.thumbnail_url,
+    node.display_url,
+    fromCarousel,
+  )
+}
+
 async function respond(username: string) {
   const apiKey = process.env.SEARCHAPI_API_KEY
   if (!apiKey) return NextResponse.json(mockLatest(username))
@@ -91,10 +124,23 @@ async function respond(username: string) {
     // fallbacks so the route still works if the schema changes or a
     // different SearchAPI SKU is used.
     const profile = data.profile || data.user || {}
-    const mediaList: InstagramMediaNode[] =
-      data.posts || data.media || data.items || profile?.media || []
+    const mediaList: InstagramMediaNode[] = Array.isArray(data.posts)
+      ? data.posts
+      : Array.isArray(data.media)
+        ? data.media
+        : Array.isArray(data.items)
+          ? data.items
+          : Array.isArray(profile?.media)
+            ? profile.media
+            : []
 
     const latest = mediaList[0]
+    const avatarFallback = pickHttpUrl(
+      profile.avatar_hd,
+      profile.avatar,
+      profile.profile_pic_url,
+    )
+    const imageFromPost = firstImageFromPost(latest)
     const payload: InstagramLatest = {
       username,
       full_name: profile.name || profile.full_name,
@@ -102,13 +148,7 @@ async function respond(username: string) {
       followers: profile.followers || profile.followers_count,
       post: latest
         ? {
-            image_url:
-              latest.thumbnail ||
-              latest.image_url ||
-              latest.thumbnail_url ||
-              latest.display_url ||
-              profile.avatar ||
-              "",
+            image_url: imageFromPost || avatarFallback,
             caption: (latest.caption || "").toString().slice(0, 600),
             likes: latest.likes || 0,
             comments: latest.comments || 0,

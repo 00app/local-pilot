@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { generateStrategy, type PostTone, type EnvMode, type OvenHeat } from "@/lib/strategy"
+import { proxiedSocialImageUrl } from "@/lib/social-image-url"
 import { PilotInfo, PILOT_TINT } from "@/components/pilot-info"
 
 interface SocialSyncCardProps {
@@ -181,7 +182,7 @@ export function SocialSyncCard({
           <div className="w-16 h-16 rounded-[12px] overflow-hidden shrink-0 bg-black/5">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={ig.post.image_url}
+              src={proxiedSocialImageUrl(ig.post.image_url)}
               alt={`@${ig.username} latest post`}
               className="w-full h-full object-cover"
             />

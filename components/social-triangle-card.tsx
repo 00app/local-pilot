@@ -20,6 +20,7 @@ import {
   type SocialSignal,
   type SocialPlatform,
 } from "@/lib/social-engine"
+import { proxiedSocialImageUrl } from "@/lib/social-image-url"
 
 /**
  * The Triangle — cross-platform social pulse.
@@ -344,7 +345,7 @@ export function SocialTriangleCard({
                     {s.latestPost.image && (
                       /* eslint-disable-next-line @next/next/no-img-element */
                       <img
-                        src={s.latestPost.image}
+                        src={proxiedSocialImageUrl(s.latestPost.image)}
                         alt={`${meta.label} latest`}
                         className="w-12 h-12 rounded-[10px] object-cover shrink-0 bg-black/5"
                       />
@@ -508,6 +509,7 @@ async function fetchSocial(
     post?: {
       image_url?: string
       thumbnail_url?: string
+      link?: string
       caption?: string
       likes?: number
       comments?: number
@@ -523,7 +525,10 @@ async function fetchSocial(
     displayName: data.full_name || data.display_name || data.page_name,
     followers: data.followers || data.likes,
     latestPost: {
-      image: data.post.image_url || data.post.thumbnail_url,
+      image:
+        data.post.image_url ||
+        data.post.thumbnail_url ||
+        data.post.link,
       caption: (data.post.caption || "").toString(),
       likes: data.post.likes,
       comments: data.post.comments,

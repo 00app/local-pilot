@@ -465,14 +465,6 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         step === 1 ? "flex-col gap-8" : ""
       }`}
     >
-      {step === 1 && (
-        <Button
-          onClick={() => setStep(2)}
-          className="h-14 px-10 text-lg font-semibold rounded-full bg-[#2AE855] text-black hover:bg-[#2AE855]/90 btn-squish shrink-0"
-        >
-          Start Calibration
-        </Button>
-      )}
       <div className="w-full max-w-xl">
         {/* Step 1: The Pilot's Welcome */}
         {step === 1 && (
@@ -497,6 +489,15 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               <p className="text-lg text-muted-foreground stagger-2">
                 Let&apos;s calibrate your Local Pilot.
               </p>
+            </div>
+
+            <div className="mb-10 flex justify-center">
+              <Button
+                onClick={() => setStep(2)}
+                className="h-14 px-10 text-lg font-semibold rounded-full bg-[#2AE855] text-black hover:bg-[#2AE855]/90 btn-squish shrink-0"
+              >
+                Start Calibration
+              </Button>
             </div>
 
             {/* Pilot Tagline */}

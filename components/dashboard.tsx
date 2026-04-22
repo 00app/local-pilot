@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { motion } from "framer-motion"
+import { Settings } from "lucide-react"
 import { toast } from "sonner"
 import { Onboarding } from "@/components/onboarding"
 import { SocialSyncCard } from "@/components/social-sync-card"
@@ -21,6 +22,16 @@ import { SurgicalLaunch } from "@/components/surgical-launch"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { PilotIntercom } from "@/components/pilot-intercom"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import {
   EnvironmentWedge,
   environmentPulseOverride,
   ENVIRONMENT_MODES,
@@ -29,7 +40,13 @@ import {
 import { generateStrategy } from "@/lib/strategy"
 import { formatAge, calculateFreshnessLeader } from "@/lib/social-engine"
 import type { EventsPayload } from "@/lib/events-payload"
-import { loadPilotSession, savePilotSession } from "@/lib/pilot-storage"
+import {
+  clearPilotFormInputs,
+  clearPilotSession,
+  loadPilotSession,
+  savePilotFormInputs,
+  savePilotSession,
+} from "@/lib/pilot-storage"
 import { proxiedSocialImageUrl } from "@/lib/social-image-url"
 import type { OvenStatus } from "@/lib/types"
 
@@ -129,7 +146,14 @@ function isStoredSession(x: unknown): x is OnboardingData {
 
 export function Dashboard() {
   const [isOnboarded, setIsOnboarded] = useState(false)
+  const [showSettingsOnboarding, setShowSettingsOnboarding] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [onboardingData, setOnboardingData] = useState<OnboardingData | null>(null)
+  const [settingsUrl, setSettingsUrl] = useState("")
+  const [settingsPostcode, setSettingsPostcode] = useState("")
+  const [settingsInstagram, setSettingsInstagram] = useState("")
+  const [settingsTiktok, setSettingsTiktok] = useState("")
+  const [settingsFacebook, setSettingsFacebook] = useState("")
   const [showCockpit, setShowCockpit] = useState(false)
   const [deployedCount, setDeployedCount] = useState(0)
   const [ovenStatus, setOvenStatus] = useState<OvenStatus>("LOW")
@@ -152,6 +176,11 @@ export function Dashboard() {
       setOnboardingData(raw)
       setIsOnboarded(true)
       setShowCockpit(true)
+      setSettingsUrl(raw.url || "")
+      setSettingsPostcode(raw.postcode || "")
+      setSettingsInstagram(raw.instagram || "")
+      setSettingsTiktok(raw.tiktok || "")
+      setSettingsFacebook(raw.facebook || "")
     }
     setSessionReady(true)
   }, [])
@@ -336,9 +365,65 @@ export function Dashboard() {
 
   const handleOnboardingComplete = async (data: OnboardingData) => {
     savePilotSession(data)
+    savePilotFormInputs({
+      url: data.url || "",
+      postcode: data.postcode || "",
+      instagram: data.instagram || "",
+      tiktok: data.tiktok || "",
+      facebook: data.facebook || "",
+    })
     setOnboardingData(data)
     setIsOnboarded(true)
+    setShowSettingsOnboarding(false)
+    setSettingsUrl(data.url || "")
+    setSettingsPostcode(data.postcode || "")
+    setSettingsInstagram(data.instagram || "")
+    setSettingsTiktok(data.tiktok || "")
+    setSettingsFacebook(data.facebook || "")
     setTimeout(() => setShowCockpit(true), 100)
+  }
+
+  const handleSaveSettings = () => {
+    if (!onboardingData) return
+    const next: OnboardingData = {
+      ...onboardingData,
+      url: settingsUrl.trim(),
+      postcode: settingsPostcode.trim().toUpperCase(),
+      instagram: settingsInstagram.trim(),
+      tiktok: settingsTiktok.trim(),
+      facebook: settingsFacebook.trim(),
+    }
+    setOnboardingData(next)
+    savePilotSession(next)
+    savePilotFormInputs({
+      url: next.url,
+      postcode: next.postcode,
+      instagram: next.instagram || "",
+      tiktok: next.tiktok || "",
+      facebook: next.facebook || "",
+    })
+    setSettingsOpen(false)
+    toast.success("Settings saved.", {
+      description: "Onboarding inputs updated for this cockpit.",
+    })
+  }
+
+  const handleResetApp = () => {
+    clearPilotSession()
+    clearPilotFormInputs()
+    setSettingsOpen(false)
+    setOnboardingData(null)
+    setIsOnboarded(false)
+    setShowCockpit(false)
+    setShowSettingsOnboarding(false)
+    setSettingsUrl("")
+    setSettingsPostcode("")
+    setSettingsInstagram("")
+    setSettingsTiktok("")
+    setSettingsFacebook("")
+    toast.success("App reset.", {
+      description: "All onboarding data cleared. Start calibration again.",
+    })
   }
 
   const fireConfetti = useCallback(
@@ -479,8 +564,8 @@ export function Dashboard() {
     )
   }
 
-  // Show onboarding if not completed
-  if (!isOnboarded) {
+  // Show onboarding for first run, or when opened from settings.
+  if (!isOnboarded || showSettingsOnboarding) {
     return <Onboarding onComplete={handleOnboardingComplete} />
   }
 
@@ -539,7 +624,17 @@ export function Dashboard() {
                 <span className="font-bold text-[#2AE855]">brightlocal.</span>
               </p>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+              <button
+                type="button"
+                aria-label="Open settings"
+                onClick={() => setSettingsOpen(true)}
+                className="h-9 w-9 rounded-full text-muted-foreground border border-[var(--hairline)] bg-[var(--surface-chip)] transition-colors hover:bg-[#2AE855] hover:text-black hover:border-[#2AE855] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2AE855] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                <Settings className="h-[18px] w-[18px] mx-auto" />
+              </button>
+            </div>
           </div>
 
           {/* Strip 2 — Oven · business · pilot · deploys */}
@@ -789,6 +884,99 @@ export function Dashboard() {
           toast.success(title, description ? { description } : undefined)
         }
       />
+
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>App settings</DialogTitle>
+            <DialogDescription>
+              Update onboarding inputs or reset the cockpit state.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 py-2">
+            <label className="text-sm font-medium text-foreground" htmlFor="settings-url">
+              Business URL
+            </label>
+            <Input
+              id="settings-url"
+              value={settingsUrl}
+              onChange={(e) => setSettingsUrl(e.target.value)}
+              placeholder="e.g. flourpot.co.uk"
+            />
+
+            <label className="text-sm font-medium text-foreground" htmlFor="settings-postcode">
+              Postcode
+            </label>
+            <Input
+              id="settings-postcode"
+              value={settingsPostcode}
+              onChange={(e) => setSettingsPostcode(e.target.value.toUpperCase())}
+              placeholder="e.g. BN1 4EN"
+              className="uppercase"
+            />
+
+            <label className="text-sm font-medium text-foreground" htmlFor="settings-instagram">
+              Instagram
+            </label>
+            <Input
+              id="settings-instagram"
+              value={settingsInstagram}
+              onChange={(e) => setSettingsInstagram(e.target.value)}
+              placeholder="@instagram_handle"
+            />
+
+            <label className="text-sm font-medium text-foreground" htmlFor="settings-tiktok">
+              TikTok
+            </label>
+            <Input
+              id="settings-tiktok"
+              value={settingsTiktok}
+              onChange={(e) => setSettingsTiktok(e.target.value)}
+              placeholder="@tiktok_handle"
+            />
+
+            <label className="text-sm font-medium text-foreground" htmlFor="settings-facebook">
+              Facebook
+            </label>
+            <Input
+              id="settings-facebook"
+              value={settingsFacebook}
+              onChange={(e) => setSettingsFacebook(e.target.value)}
+              placeholder="facebook.com/yourpage"
+            />
+          </div>
+
+          <DialogFooter className="sm:justify-between">
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleResetApp}
+            >
+              Reset app
+            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setSettingsOpen(false)
+                  setShowSettingsOnboarding(true)
+                }}
+              >
+                Open onboarding questionnaire
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSaveSettings}
+                disabled={!settingsUrl.trim() || !settingsPostcode.trim()}
+              >
+                Save settings
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -263,6 +263,7 @@ export function SocialTriangleCard({
 
   return (
     <div className="strategy-card-wide card-mint h-full">
+      <p className="widget-index mb-2">08 · The triangle</p>
       <PilotInfo
         tint={PILOT_TINT.mint}
         title="signal-to-seo syndication"
@@ -280,8 +281,7 @@ export function SocialTriangleCard({
           <p className="pilot-label">social channels live.</p>
         </div>
 
-        <div className="text-right max-w-[50%] pr-8 pt-1">
-          <p className="widget-index mb-2">08 · The triangle</p>
+        <div className="text-left max-w-[50%]">
           <h3 className="text-xl font-bold">Social triangle.</h3>
           <p className="text-sm opacity-80 mt-1">
             {leader

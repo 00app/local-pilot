@@ -136,6 +136,7 @@ export function SeoShaperCard({
       className="strategy-card-wide card-coral w-full"
       style={{ minHeight: "auto" }}
     >
+      <p className="widget-index mb-2">07 · The shaper</p>
       <div className="flex items-start justify-between gap-8 mb-6">
         {/* Big Number */}
         <div>
@@ -161,9 +162,8 @@ export function SeoShaperCard({
         </div>
 
         {/* Strategy Label + status badge */}
-        <div className="text-right max-w-[55%] relative">
-          <div className="flex items-center justify-end gap-2 mb-2">
-            <p className="widget-index">07 · The shaper</p>
+        <div className="text-left max-w-[55%] relative">
+          <div className="flex items-center gap-2 mb-2">
             <PilotInfo
               tint={PILOT_TINT.coral}
               title="technical audit"
@@ -199,7 +199,7 @@ export function SeoShaperCard({
               {CATEGORY_META[primary.category].icon}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="widget-index mb-1">technical freshness alert</p>
+              <p className="widget-index mb-1">Technical freshness alert</p>
               <p className="text-base font-semibold leading-snug">{primary.title}</p>
               <p className="text-sm opacity-80 mt-0.5">{primary.reason}</p>
             </div>

@@ -81,6 +81,7 @@ interface BusinessMeta {
 }
 
 interface OnboardingData {
+  businessName?: string
   url: string
   postcode: string
   instagram?: string
@@ -112,6 +113,13 @@ interface LiveInsights {
   events: EventsPayload | null
   isLive: boolean
   loading: boolean
+}
+
+interface LiveWeather {
+  condition: string
+  tempC: number
+  mode: EnvironmentMode
+  isLive: boolean
 }
 
 // Dampened spring — matches spec cubic-bezier(0.34, 1.56, 0.64, 1)
@@ -150,6 +158,7 @@ export function Dashboard() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [onboardingData, setOnboardingData] = useState<OnboardingData | null>(null)
   const [settingsUrl, setSettingsUrl] = useState("")
+  const [settingsBusinessName, setSettingsBusinessName] = useState("")
   const [settingsPostcode, setSettingsPostcode] = useState("")
   const [settingsInstagram, setSettingsInstagram] = useState("")
   const [settingsTiktok, setSettingsTiktok] = useState("")
@@ -166,7 +175,9 @@ export function Dashboard() {
     isLive: false,
     loading: false,
   })
+  const [weather, setWeather] = useState<LiveWeather | null>(null)
   const insightsFetchedRef = useRef(false)
+  const weatherFetchedRef = useRef(false)
   const [sessionReady, setSessionReady] = useState(false)
 
   // Restore completed calibration from localStorage so refresh keeps the cockpit.
@@ -177,6 +188,7 @@ export function Dashboard() {
       setIsOnboarded(true)
       setShowCockpit(true)
       setSettingsUrl(raw.url || "")
+      setSettingsBusinessName(raw.businessName || "")
       setSettingsPostcode(raw.postcode || "")
       setSettingsInstagram(raw.instagram || "")
       setSettingsTiktok(raw.tiktok || "")
@@ -190,6 +202,7 @@ export function Dashboard() {
   const businessMeta = onboardingData?.businessMeta
   const businessName = useMemo(() => {
     if (businessMeta?.name) return businessMeta.name
+    if (onboardingData?.businessName?.trim()) return onboardingData.businessName.trim()
     if (!onboardingData?.url) return "Your Business"
     return toTitleCase(deriveNameSeed(onboardingData.url)) || "Your Business"
   }, [businessMeta, onboardingData])
@@ -352,6 +365,32 @@ export function Dashboard() {
     void run()
   }, [isOnboarded, businessType, postcode, postcodeArea])
 
+  // Live weather snapshot for the Environment Pilot button.
+  useEffect(() => {
+    if (!isOnboarded) return
+    if (!postcode) return
+    if (weatherFetchedRef.current) return
+    weatherFetchedRef.current = true
+
+    const run = async () => {
+      try {
+        const res = await fetch("/api/weather", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ postcode }),
+        })
+        if (!res.ok) throw new Error(`weather ${res.status}`)
+        const data: LiveWeather = await res.json()
+        setWeather(data)
+        // Seed the initial environment mode from live weather once.
+        if (data.mode) setEnvMode(data.mode)
+      } catch {
+        setWeather(null)
+      }
+    }
+    void run()
+  }, [isOnboarded, postcode])
+
   const cycleEnvironment = useCallback(() => {
     setEnvMode((prev) => {
       const idx = ENVIRONMENT_MODES.indexOf(prev)
@@ -367,6 +406,7 @@ export function Dashboard() {
     savePilotSession(data)
     savePilotFormInputs({
       url: data.url || "",
+      businessName: data.businessName || "",
       postcode: data.postcode || "",
       instagram: data.instagram || "",
       tiktok: data.tiktok || "",
@@ -376,6 +416,7 @@ export function Dashboard() {
     setIsOnboarded(true)
     setShowSettingsOnboarding(false)
     setSettingsUrl(data.url || "")
+    setSettingsBusinessName(data.businessName || "")
     setSettingsPostcode(data.postcode || "")
     setSettingsInstagram(data.instagram || "")
     setSettingsTiktok(data.tiktok || "")
@@ -387,6 +428,7 @@ export function Dashboard() {
     if (!onboardingData) return
     const next: OnboardingData = {
       ...onboardingData,
+      businessName: settingsBusinessName.trim(),
       url: settingsUrl.trim(),
       postcode: settingsPostcode.trim().toUpperCase(),
       instagram: settingsInstagram.trim(),
@@ -397,6 +439,7 @@ export function Dashboard() {
     savePilotSession(next)
     savePilotFormInputs({
       url: next.url,
+      businessName: next.businessName || "",
       postcode: next.postcode,
       instagram: next.instagram || "",
       tiktok: next.tiktok || "",
@@ -417,6 +460,7 @@ export function Dashboard() {
     setShowCockpit(false)
     setShowSettingsOnboarding(false)
     setSettingsUrl("")
+    setSettingsBusinessName("")
     setSettingsPostcode("")
     setSettingsInstagram("")
     setSettingsTiktok("")
@@ -673,6 +717,7 @@ export function Dashboard() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springTransition, delay: 0.05 }}
         >
+          <p className="widget-index mb-2">01 · The dashboard</p>
           <PilotStatusBar
             freshness={freshnessScore}
             rank={businessMeta?.ownRank ?? null}
@@ -692,6 +737,7 @@ export function Dashboard() {
           mode={envMode}
           onCycle={cycleEnvironment}
           ovenStatus={ovenStatus}
+          weather={weather}
           postcodeArea={postcodeArea}
           street={street}
         />
@@ -895,6 +941,16 @@ export function Dashboard() {
           </DialogHeader>
 
           <div className="grid gap-3 py-2">
+            <label className="text-sm font-medium text-foreground" htmlFor="settings-business-name">
+              Business name
+            </label>
+            <Input
+              id="settings-business-name"
+              value={settingsBusinessName}
+              onChange={(e) => setSettingsBusinessName(e.target.value)}
+              placeholder="e.g. The Flour Pot Bakery"
+            />
+
             <label className="text-sm font-medium text-foreground" htmlFor="settings-url">
               Business URL
             </label>

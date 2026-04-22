@@ -96,6 +96,7 @@ export function AuthorityLabCard({
 
   return (
     <div className="strategy-card-wide card-lavender h-full">
+      <p className="widget-index mb-2">05 · The lab</p>
       <PilotInfo
         tint={PILOT_TINT.lavender}
         title="authority compounding"
@@ -105,14 +106,13 @@ export function AuthorityLabCard({
         {/* Big Number */}
         <div>
           <p className="stat-massive">
-            +{growth}<span className="text-5xl font-bold align-top relative -top-8">%</span>
+            +{growth}<span className="text-3xl font-bold align-super ml-1">%</span>
           </p>
           <p className="pilot-label">authority growth this month.</p>
         </div>
 
-        {/* Strategy Label — pr-8 reserves clearance for the absolute info icon */}
-        <div className="text-right max-w-[50%] pr-8 pt-1">
-          <p className="widget-index mb-2">05 · The lab</p>
+        {/* Strategy Label */}
+        <div className="text-left max-w-[50%]">
           <h3 className="text-xl font-bold">Authority lab.</h3>
           <p className="text-sm opacity-80 mt-1">
             Deep-dive drafted on &quot;{topic}&quot; · {wordCount} words.
@@ -124,7 +124,7 @@ export function AuthorityLabCard({
       <div className="mb-4 rounded-[16px] bg-white/40 p-4">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div className="flex items-center gap-2">
-            <span className="widget-index">google intent signals</span>
+            <span className="widget-index">Google intent signals</span>
             <span
               className={`text-[10px] font-mono uppercase tracking-[0.15em] px-2 py-0.5 rounded-full ${
                 isLive
@@ -202,7 +202,7 @@ export function AuthorityLabCard({
           </div>
         </div>
         <textarea
-          className="editor-field flex-1"
+          className="editor-field flex-1 text-[15px]"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           readOnly={!isEditing}

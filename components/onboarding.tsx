@@ -76,6 +76,7 @@ export interface BusinessMetaSnapshot {
 
 interface OnboardingProps {
   onComplete: (data: {
+    businessName?: string
     url: string
     postcode: string
     instagram?: string
@@ -235,6 +236,7 @@ async function fetchSocial(
 
 export function Onboarding({ onComplete }: OnboardingProps) {
   const [step, setStep] = useState<Step>(1)
+  const [businessName, setBusinessName] = useState("")
   const [url, setUrl] = useState("")
   const [postcode, setPostcode] = useState("")
   const [instagram, setInstagram] = useState("")
@@ -250,11 +252,19 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   ])
   const [showCelebration, setShowCelebration] = useState(false)
   const [inputsHydrated, setInputsHydrated] = useState(false)
+  const [placeLookup, setPlaceLookup] = useState<{
+    name?: string
+    address?: string
+    rating?: number
+    isLive?: boolean
+  } | null>(null)
+  const [isFindingPlace, setIsFindingPlace] = useState(false)
 
   // Restore URL / postcode / social handles from localStorage (client only).
   useEffect(() => {
     const saved = loadPilotFormInputs()
     if (saved) {
+      if (typeof saved.businessName === "string") setBusinessName(saved.businessName)
       if (typeof saved.url === "string") setUrl(saved.url)
       if (typeof saved.postcode === "string") setPostcode(saved.postcode)
       if (typeof saved.instagram === "string") setInstagram(saved.instagram)
@@ -268,13 +278,14 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   useEffect(() => {
     if (!inputsHydrated) return
     savePilotFormInputs({
+      businessName,
       url,
       postcode,
       instagram,
       tiktok,
       facebook,
     })
-  }, [inputsHydrated, url, postcode, instagram, tiktok, facebook])
+  }, [inputsHydrated, businessName, url, postcode, instagram, tiktok, facebook])
 
   // Strict-mode + stale-dep safe: gate the whole async sequence behind a ref
   // so React 19 Strict Mode's double-mount doesn't kick the scrape twice,
@@ -294,14 +305,14 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       // Snapshot user inputs to pass through to onComplete at the end. State
       // writes inside the effect no longer retrigger it, so we read these
       // once at the top for clarity.
-      const inputs = { url, postcode, instagram, tiktok, facebook }
+      const inputs = { businessName, url, postcode, instagram, tiktok, facebook }
 
       // Derive a best-guess business name from the URL domain so the first
       // Maps query has something to latch onto before we know the real
       // Google-profile name. "flourpot.co.uk" → "flourpot" → used as a
       // keyword inside the Maps search. The live SearchAPI response then
       // hands us the canonical business name + type.
-      const nameSeed = deriveNameSeed(url)
+      const nameSeed = businessName.trim() || deriveNameSeed(url)
 
       let competitors: Competitor[] = []
       let socials: SocialSnapshot[] = []
@@ -459,6 +470,33 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     if (step < 4) setStep((step + 1) as Step)
   }
 
+  const handleFindPlace = async () => {
+    if (!businessName.trim()) return
+    setIsFindingPlace(true)
+    try {
+      const res = await fetch("/api/maps", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          postcode,
+          q: `${businessName.trim()} ${postcode.trim()}`,
+        }),
+      })
+      if (!res.ok) return
+      const data = (await res.json()) as MapsPinSnapshot
+      setPlaceLookup({
+        name: data.topResultName,
+        address: data.topResultAddress,
+        rating: data.topResultRating,
+        isLive: data.isLive,
+      })
+    } catch {
+      setPlaceLookup(null)
+    } finally {
+      setIsFindingPlace(false)
+    }
+  }
+
   return (
     <div
       className={`min-h-screen bg-background flex items-center justify-center p-8 ${
@@ -525,14 +563,24 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             <div className="text-center mb-8">
               <p className="text-sm font-mono text-[#2AE855] uppercase tracking-wider mb-2 stagger-1">Calibrating Brand DNA</p>
               <h1 className="text-3xl font-bold text-foreground mb-3 stagger-2">
-                Where do you live on the web?
+                Find your business first.
               </h1>
               <p className="text-muted-foreground stagger-2">
-                Enter your business URL so we can learn your brand.
+                Add business name + URL so we can localize the right Google Maps place.
               </p>
             </div>
 
-            <div className="mb-8 stagger-3">
+            <div className="mb-4 stagger-3">
+              <Input
+                type="text"
+                placeholder="Business name (e.g. The Flour Pot Bakery)"
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                className="h-16 text-lg rounded-full px-6 bg-card text-foreground placeholder:text-muted-foreground text-center focus:bg-[#2AE855]/20 outline-none transition-colors"
+              />
+            </div>
+
+            <div className="mb-4 stagger-3">
               <Input
                 type="text"
                 placeholder="e.g. flourpot.co.uk"
@@ -542,10 +590,28 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               />
             </div>
 
+            <div className="mb-8 flex flex-col items-center gap-3">
+              <Button
+                type="button"
+                onClick={handleFindPlace}
+                disabled={!businessName || isFindingPlace}
+                className="h-11 px-6 rounded-full bg-white/60 hover:bg-white/80 text-foreground"
+              >
+                {isFindingPlace ? "Finding on Maps..." : "Find on Google Maps"}
+              </Button>
+              {placeLookup?.name && (
+                <p className="text-xs text-muted-foreground text-center max-w-md">
+                  Place match: <span className="font-semibold text-foreground">{placeLookup.name}</span>
+                  {placeLookup.address ? ` · ${placeLookup.address}` : ""}
+                  {typeof placeLookup.rating === "number" ? ` · ★${placeLookup.rating.toFixed(1)}` : ""}
+                </p>
+              )}
+            </div>
+
             <div className="flex justify-center mt-10 stagger-4">
               <Button
                 onClick={nextStep}
-                disabled={!url}
+                disabled={!businessName || !url}
                 className="h-14 px-10 text-lg font-semibold rounded-full bg-[#2AE855] text-black hover:bg-[#2AE855]/90 btn-squish disabled:opacity-50"
               >
                 Continue

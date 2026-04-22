@@ -7,6 +7,7 @@ const INPUTS_KEY = "local_pilot_onboarding_inputs_v1"
 const SESSION_KEY = "local_pilot_session_v1"
 
 export interface PilotFormInputs {
+  businessName: string
   url: string
   postcode: string
   instagram: string

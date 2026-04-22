@@ -140,6 +140,7 @@ export function CompetitorRadarCard({
 
   return (
     <div className="strategy-card-wide card-coral h-full">
+      <p className="widget-index mb-2">06 · The battle</p>
       <PilotInfo
         tint={PILOT_TINT.coral}
         title="proximity competition"
@@ -147,12 +148,12 @@ export function CompetitorRadarCard({
       />
       <div className="flex items-start justify-between gap-8 mb-6">
         <div>
-          <p className="stat-massive">
-            {rank !== null ? `#${rank}` : "—"}
-            <span className="text-4xl font-bold opacity-60 ml-2">
+          <div className="stat-massive flex items-baseline gap-2">
+            <span>{rank !== null ? `#${rank}` : "—"}</span>
+            <span className="text-4xl font-bold opacity-60">
               / {totalRivals ?? "—"}
             </span>
-          </p>
+          </div>
           <p className="pilot-label">
             {rank !== null
               ? `your rank in ${postcode.split(" ")[0] || postcode}.`
@@ -160,9 +161,8 @@ export function CompetitorRadarCard({
           </p>
         </div>
 
-        {/* Strategy Label — pr-8 reserves clearance for the absolute info icon */}
-        <div className="text-right max-w-[50%] pr-8 pt-1">
-          <p className="widget-index mb-2">06 · The battle</p>
+        {/* Strategy Label */}
+        <div className="text-left max-w-[50%]">
           <h3 className="text-xl font-bold">Competitor radar.</h3>
           <p className="text-sm opacity-80 mt-1">
             {totalRivals !== null && totalRivals > 0

@@ -72,6 +72,11 @@ interface EnvironmentWedgeProps {
   mode: EnvironmentMode
   onCycle: () => void
   ovenStatus?: OvenStatus
+  weather?: {
+    condition: string
+    tempC: number
+    isLive: boolean
+  } | null
   /** Short postcode area (e.g. `BN1`) — anchors the compound line. */
   postcodeArea?: string
   /** Live street from the business's Maps address — replaces "Sydney St". */
@@ -82,10 +87,20 @@ export function EnvironmentWedge({
   mode,
   onCycle,
   ovenStatus,
+  weather,
   postcodeArea,
   street,
 }: EnvironmentWedgeProps) {
   const s = SCENARIOS[mode]
+  const weatherLabel = weather?.condition?.toLowerCase() || s.label
+  const weatherTemp = typeof weather?.tempC === "number" ? `${Math.round(weather.tempC)}°C` : s.temp
+  const areaLower = postcodeArea ? postcodeArea.toLowerCase() : "bn1"
+  const liveMessage =
+    mode === "rain"
+      ? `it's ${weatherLabel} in ${areaLower}. shifting strategy to 'indoor comfort' intent.`
+      : mode === "sun"
+        ? `it's ${weatherLabel} in ${areaLower}. tilting to 'iced drinks & garden seating' intent.`
+        : `it's ${weatherLabel} in ${areaLower}. drafting a 'quick grab & go' angle for the morning rush.`
 
   // Mic-drop: Hot oven + Rain = compound suggestion, anchored to the live
   // street + area when we have them (falls back to the Sydney St seed copy
@@ -130,7 +145,7 @@ export function EnvironmentWedge({
             environment pilot · active
           </span>
           <span className="text-xs font-semibold">
-            {s.label} · {s.temp}
+            {weatherLabel} · {weatherTemp}
           </span>
         </div>
       </div>
@@ -156,7 +171,7 @@ export function EnvironmentWedge({
               {compound}
             </>
           ) : (
-            s.message
+            weather ? liveMessage : s.message
           )}
         </motion.p>
       </AnimatePresence>

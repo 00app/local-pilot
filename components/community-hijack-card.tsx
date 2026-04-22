@@ -86,6 +86,7 @@ export function CommunityHijackCard({
 
   return (
     <div className="strategy-card card-sky h-full">
+      <p className="widget-index mb-2">04 · The hijack</p>
       <PilotInfo
         tint={PILOT_TINT.sky}
         title="intent hijacking"
@@ -108,7 +109,6 @@ export function CommunityHijackCard({
 
       {/* Strategy Label */}
       <div className="mb-4">
-        <p className="widget-index mb-2">04 · The hijack</p>
         <h3 className="text-xl font-bold">Community hijack.</h3>
         <p className="text-sm opacity-80 mt-1 line-clamp-3">
           {scopeChip && (

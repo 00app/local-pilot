@@ -468,6 +468,14 @@ Maintained chronologically; every feature drop below ships as a discrete atomic 
     - Refactored `app/page.tsx` into a thin **server-component wrapper** that consumes both proxies at the boundary (`await params; await searchParams`) before rendering the client dashboard. Moved the full cockpit implementation into `components/dashboard.tsx` (still `"use client"`, exports named `Dashboard`). When inspectors now walk the page props they walk resolved plain objects rather than the Promise proxy's `ownKeys` trap, so the warning stream stops.
     - Verified: a fresh `GET /` after the refactor produces **zero** new `sync-dynamic-apis` warnings (previously one-to-many per mousemove). No runtime behaviour change — the dashboard renders identically, but the dev-tools overlay no longer shows a spurious error count.
 
+- **v1.8 — Live weather feed for Environment Pilot + settings panel:**
+    - **New `/api/weather` route** (`app/api/weather/route.ts`) wired to WeatherAPI current conditions. `POST { postcode }` returns `{ condition, tempC, mode, isLive }`, where `mode` is derived from condition text (`rain/drizzle/shower/thunder` → `rain`, else `sun`). Route falls back to a deterministic demo payload when `WEATHERAPI_API_KEY` is unset, preserving the offline demo story.
+    - **EnvironmentWedge now consumes live weather state.** The wedge no longer relies solely on static scenario labels for condition/temp; it renders WeatherAPI `condition + tempC` and builds postcode-aware messaging (`it's {condition} in {postcodeArea}...`) while keeping the existing tap-to-cycle behavior and the `oven HOT + rain` compound override.
+    - **Dashboard weather orchestration.** Added a one-shot weather fetch on cockpit mount keyed by onboarded postcode. The returned mode seeds initial environment intent, then owners can still cycle scenarios manually.
+    - **Settings UX shipped.** Header now has a circular icon-only settings button beside theme toggle. Settings panel includes editable onboarding inputs (URL, postcode, IG, TikTok, Facebook), save/cancel behavior, a deep-link into the full onboarding questionnaire, and a destructive app reset action that clears persisted pilot session + form inputs.
+    - **WeatherAPI env docs added** in `.env.local.example` via `WEATHERAPI_API_KEY`.
+    - **Ref:** [WeatherAPI](https://www.weatherapi.com/my/)
+
 ---
 
 ## 13. Backlog / candidate next drops
@@ -476,7 +484,7 @@ Maintained chronologically; every feature drop below ships as a discrete atomic 
 - Real per-handle viral baselines (currently a platform-wide heuristic in `detectViral()`): cache a 14-day rolling engagement average per handle so the 5× trigger reflects *this* business's normal, not the platform median.
 - Render the Triangle's Maps pin as an actual embedded mini-map (static image or interactive `leaflet`/`mapbox` tile) instead of the current coordinate-only summary.
 - Persist deployment history so the header counter isn't lost on refresh.
-- Real weather via `/api/environment` (Open-Meteo or similar) instead of the 3-scenario cycle.
+- Expand weather handling beyond current conditions: hourly forecasts, precipitation probability bands, and business-type-specific intent heuristics layered over the new WeatherAPI feed.
 - Dedicated event calendar scrape for The Hijack — v1.7 extracts event signals from SERP related-searches (keyword scan for `festival`/`market`/`pride`/`fringe`), but a dedicated engine (Eventbrite, Facebook Events, or ticketmaster) would give us real dates + days-away rather than the "~14 days" placeholder.
 - `Vercel Analytics` wired in prod.
 - Export the cockpit as a PDF "Pilot report" for owner hand-off.

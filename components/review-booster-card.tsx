@@ -57,6 +57,7 @@ export function ReviewBoosterCard({ rating, latestReview, suggestedResponse, onP
 
   return (
     <div className="strategy-card card-yellow h-full">
+      <p className="widget-index mb-2">03 · The booster</p>
       <PilotInfo
         tint={PILOT_TINT.lemon}
         title="sentiment velocity"
@@ -70,7 +71,6 @@ export function ReviewBoosterCard({ rating, latestReview, suggestedResponse, onP
 
       {/* Strategy Label */}
       <div className="mb-4">
-        <p className="text-sm font-medium opacity-70 mb-1">03</p>
         <h3 className="text-xl font-bold">Review booster.</h3>
         <p className="text-sm opacity-80 mt-1 line-clamp-2">
           Responds to reviews and amplifies 5-star sentiment.

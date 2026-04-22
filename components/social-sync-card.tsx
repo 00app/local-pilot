@@ -154,6 +154,7 @@ export function SocialSyncCard({
 
   return (
     <div className="strategy-card card-mint h-full">
+      <p className="widget-index mb-2">02 · The pulse</p>
       <PilotInfo
         tint={PILOT_TINT.mint}
         title="signal-to-seo bridging"
@@ -169,7 +170,6 @@ export function SocialSyncCard({
 
       {/* Strategy Label */}
       <div className="mb-4">
-        <p className="widget-index mb-2">02 · The pulse</p>
         <h3 className="text-xl font-bold">Social sync.</h3>
         <p className="text-sm opacity-80 mt-1 line-clamp-2">
           Translates Instagram activity into Google posts.
